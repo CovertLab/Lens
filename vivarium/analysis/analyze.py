@@ -46,18 +46,30 @@ class Analyzer:
         args = self.parser.parse_args()
         self.plot(args)
 
-    def get_data(self, args):
+    @staticmethod
+    def get_data(args, experiment_id):
         if args.atlas:
             client = get_atlas_client(SECRETS_PATH)
         else:
             client = get_local_client(
                 args.host, args.port, args.database_name)
         data, environment_config = data_from_database(
-            args.experiment_id, client)
+            experiment_id, client)
         del data[0]
         return data, environment_config
 
-    def plot_snapshots(self, data, environment_config, out_dir):
+    @staticmethod
+    def plot_snapshots(data, environment_config, out_dir, settings):
+        snapshots_data = Analyzer.format_data_for_snapshots(
+            data, environment_config)
+        plot_config = {
+            'out_dir': out_dir,
+        }
+        plot_config.update(settings)
+        plot_snapshots(snapshots_data, plot_config)
+
+    @staticmethod
+    def format_data_for_snapshots(data, environment_config):
         agents = {
             time: timepoint['agents']
             for time, timepoint in data.items()
@@ -71,57 +83,61 @@ class Analyzer:
             'fields': fields,
             'config': environment_config,
         }
+        return snapshots_data
+
+    @staticmethod
+    def plot_tags(
+        data, environment_config, tagged_molecules, out_dir, settings
+    ):
+        tags_data = Analyzer.format_data_for_tags(
+            data, environment_config)
         plot_config = {
             'out_dir': out_dir,
+            'tagged_molecules': tagged_molecules,
         }
-        plot_config.update(self.snapshots_config)
-        plot_snapshots(snapshots_data, plot_config)
+        plot_config.update(settings)
+        plot_tags(tags_data, plot_config)
 
-    def plot_tags(self, data, environment_config, tags_path, out_dir):
+    @staticmethod
+    def format_data_for_tags(data, environment_config):
         agents = {
             time: timepoint['agents']
             for time, timepoint in data.items()
         }
-        fields = {
-            time: timepoint['fields']
-            for time, timepoint in data.items()
-        }
-        with open(tags_path, 'r') as f:
-            reader = csv.reader(f)
-            molecules = [
-                tuple(path) for path in reader
-            ]
         tags_data = {
             'agents': agents,
             'config': environment_config,
         }
-        plot_config = {
-            'out_dir': out_dir,
-            'tagged_molecules': molecules,
-        }
-        plot_config.update(self.tags_config)
-        plot_tags(tags_data, plot_config)
+        return tags_data
 
-    def plot_timeseries(self, data, out_dir):
+    @staticmethod
+    def plot_timeseries(data, out_dir, settings):
         plot_settings = {
             'agents_key': 'agents',
             'title_size': 10,
             'tick_label_size': 10,
         }
-        plot_settings.update(self.timeseries_config)
+        plot_settings.update(settings)
         plot_agents_multigen(data, plot_settings, out_dir)
 
-    def plot_colony_metrics(self, data, out_dir):
+    @staticmethod
+    def plot_colony_metrics(data, out_dir):
+        path_ts = Analyzer.format_data_for_colony_metrics(data)
+        fig = plot_colony_metrics(path_ts)
+        fig.savefig(os.path.join(out_dir, 'colonies'))
+
+    @staticmethod
+    def format_data_for_colony_metrics(data):
         embedded_ts = timeseries_from_data(data)
         colony_metrics_ts = embedded_ts['colony_global']
         colony_metrics_ts['time'] = embedded_ts['time']
         path_ts = path_timeseries_from_embedded_timeseries(
             colony_metrics_ts)
-        fig = plot_colony_metrics(path_ts)
-        fig.savefig(os.path.join(out_dir, 'colonies'))
+        return path_ts
 
     def plot(self, args):
-        data, environment_config = self.get_data(args)
+        data, environment_config = Analyzer.get_data(
+            args, args.experiment_id)
         out_dir = os.path.join(OUT_DIR, args.experiment_id)
         if os.path.exists(out_dir):
             if not args.force:
@@ -130,17 +146,29 @@ class Analyzer:
             os.makedirs(out_dir)
 
         if args.snapshots:
-            self.plot_snapshots(data, environment_config, out_dir)
+            Analyzer.plot_snapshots(
+                data, environment_config, out_dir,
+                self.snapshots_config
+            )
         if args.tags is not None:
-            self.plot_tags(
-                data, environment_config, args.tags, out_dir)
+            with open(args.tags, 'r') as f:
+                reader = csv.reader(f)
+                tagged_molecules = [
+                    tuple(path) for path in reader
+                ]
+            Analyzer.plot_tags(
+                data, environment_config, tagged_molecules, out_dir,
+                self.tags_config
+            )
         if args.timeseries:
-            self.plot_timeseries(data, out_dir)
+            Analyzer.plot_timeseries(
+                data, out_dir, self.timeseries_config)
         if args.colony_metrics:
-            self.plot_colony_metrics(data, out_dir)
+            Analyzer.plot_colony_metrics(data, out_dir)
 
     def _get_parser(self):
         parser = argparse.ArgumentParser()
+        Analyzer.add_connection_args(parser)
         parser.add_argument(
             'experiment_id',
             help='Experiment ID as recorded in the database',
@@ -184,6 +212,10 @@ class Analyzer:
                 'could overwrite your existing plots'
             ),
         )
+        return parser
+
+    @staticmethod
+    def add_connection_args(parser):
         parser.add_argument(
             '--atlas', '-a',
             action='store_true',
@@ -221,7 +253,6 @@ class Analyzer:
                 'Defaults to "simulations".'
             )
         )
-        return parser
 
 
 if __name__ == '__main__':
