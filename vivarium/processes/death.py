@@ -204,23 +204,24 @@ class DeathFreezeState(Process):
         for detector in self.detectors:
             if not detector.check_can_survive(states):
                 # kill the cell
-                return {
+                update = {
                     'global': {
                         'dead': 1,
                     },
                     'processes': {
                         '_delete': [
-                            ('..', target,)
+                            (target,)
                             for target in self.targets
                         ],
                     },
                 }
+                return update
         return {}
 
 
 class ToyAntibioticInjector(Process):
     name = 'toy_antibiotic_injector'
-    
+
     def __init__(self, initial_parameters=None):
         if initial_parameters is None:
             initial_parameters = {}
@@ -275,7 +276,7 @@ class ToyDeath(Generator):
             'death': {
                 'internal': ('cell',),
                 'global': ('global',),
-                'processes': ('global',),
+                'processes': tuple(),
             },
             'injector': {
                 'internal': ('cell',),
