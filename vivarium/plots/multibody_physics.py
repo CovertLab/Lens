@@ -118,15 +118,22 @@ def plot_agent(ax, data, color, agent_shape):
         ax.add_line(line)
 
 
-def plot_agents(ax, agents, agent_colors={}, agent_shape='segment'):
+def plot_agents(
+    ax, agents, agent_colors={}, agent_shape='segment', dead_color=None
+):
     '''
     - ax: the axis for plot
     - agents: a dict with {agent_id: agent_data} and
         agent_data a dict with keys location, angle, length, width
     - agent_colors: dict with {agent_id: hsv color}
+    - dead_color: List of 3 floats that define HSV color to use for dead
+      cells. Dead cells only get treated differently if this is set.
     '''
     for agent_id, agent_data in agents.items():
         color = agent_colors.get(agent_id, [DEFAULT_HUE]+DEFAULT_SV)
+        if dead_color:
+            if agent_data['boundary']['dead']:
+                color = dead_color
         plot_agent(ax, agent_data, color, agent_shape)
 
 def mutate_color(baseline_hsv):
@@ -229,6 +236,9 @@ def plot_snapshots(data, plot_config):
               to plot.
             * **field_label_size** (:py:class:`float`): Font size of the
               field label.
+            * **dead_color** (:py:class:`list` of 3 :py:class:`float`s):
+              Color for dead cells in HSV. Defaults to [0, 0, 0], which
+              is black.
     '''
     check_plt_backend()
 
@@ -240,6 +250,7 @@ def plot_snapshots(data, plot_config):
     skip_fields = plot_config.get('skip_fields', [])
     include_fields = plot_config.get('include_fields', None)
     field_label_size = plot_config.get('field_label_size', 20)
+    dead_color = plot_config.get('dead_color', [0, 0, 0])
 
     # get data
     agents = data.get('agents', {})
@@ -328,7 +339,11 @@ def plot_snapshots(data, plot_config):
                                 cmap='BuPu')
                 if agents:
                     agents_now = agents[time]
-                    plot_agents(ax, agents_now, agent_colors, agent_shape)
+                    plot_agents(
+                        ax, agents_now,agent_colors, agent_shape,
+                        dead_color,
+                    )
+
 
                 # colorbar in new column after final snapshot
                 if col_idx == n_snapshots - 1:
