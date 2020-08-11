@@ -9,6 +9,7 @@ from __future__ import absolute_import, division, print_function
 
 import os
 import copy
+import math
 import random
 import datetime
 
@@ -1679,6 +1680,36 @@ def make_proton(parallel=False):
         'initial_state': initial_state}
 
 
+class Sine(Process):
+    name = 'sine'
+    defaults = {
+        'initial_phase': 0.0}
+
+    def __init__(self, parameters=None):
+        super(Sine, self).__init__(parameters)
+
+    def ports_schema(self):
+        return {
+            'frequency': {
+                '_default': 440.0},
+            'amplitude': {
+                '_default': 1.0},
+            'phase': {
+                '_default': self.parameters['initial_phase']},
+            'signal': {
+                '_default': 0.0,
+                '_updater': 'set'}}
+
+    def next_update(self, timestep, states):
+        phase_shift = timestep * states['frequency'] % 1.0
+        signal = states['amplitude'] * math.sin(
+            2 * math.pi * (states['phase'] + phase_shift))
+
+        return {
+            'phase': phase_shift,
+            'signal': signal}
+
+
 def test_topology_ports():
     proton = make_proton()
 
@@ -1832,11 +1863,20 @@ def test_parallel():
     experiment.end()
 
 
+def test_sine():
+    sine = Sine()
+    print(sine.next_update(0.25 / 440.0, {
+        'frequency': 440.0,
+        'amplitude': 0.1,
+        'phase': 1.5}))
+
+
 if __name__ == '__main__':
     # test_recursive_store()
     # test_in()
     # test_timescales()
     # test_topology_ports()
     # test_multi()
+    # test_sine()
 
     test_parallel()
