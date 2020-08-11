@@ -14,10 +14,7 @@ from vivarium.core.emitter import (
     path_timeseries_from_embedded_timeseries,
     path_timeseries_from_data,
 )
-from vivarium.core.experiment import (
-    Experiment,
-    update_in,
-)
+from vivarium.core.experiment import Experiment
 from vivarium.core.process import Process, Deriver, Generator, generate_derivers
 from vivarium.core import emitter as emit
 from vivarium.library.dict_utils import (
