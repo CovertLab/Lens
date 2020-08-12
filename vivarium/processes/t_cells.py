@@ -4,6 +4,7 @@ import os
 import sys
 import copy
 import random
+import argparse
 
 from vivarium.library.units import units
 from vivarium.library.dict_utils import deep_merge
@@ -38,7 +39,9 @@ class TCellProcess(Process):
         'initial_PD1n': 0.8,
         'transition_PD1n_to_PD1p': 0.01,  # probability/min - nearly 95% by 10 days (Wherry 2007)
         # death rates (Petrovas 2007)
-        'death_PD1p': 0.085,  # 0.7 / 14 hrs
+        #TODO - @Eran - how is the timestep functioning - when I times it by the probability is it 1 or
+        # 60? e.g. death probability and others
+        'death_PD1p': 0.085,  # per min 0.7 / 14 hrs
         'death_PD1n': 0.024,  # 0.2 / 14 hrs
         'death_PD1p_next_to_PDL1p': 0.11,  # 0.95 / 14 hrs
         # production rates
@@ -131,7 +134,6 @@ class TCellProcess(Process):
                 },
 
             }
-        }
 
     def next_update(self, timestep, states):
         cell_state = states['internal']['cell_state']
@@ -146,7 +148,7 @@ class TCellProcess(Process):
                     '_delete': {
                         'path': self.self_path
                     }
-                }
+            }
         elif cell_state == 'PD1p':
             #TODO - @Eran - need to know how to call just 1 cell?
             if PDL1 <=1e4:#number of molecules/cell
@@ -157,7 +159,7 @@ class TCellProcess(Process):
                             'path': self.self_path
                         }
                     }
-            elif:
+            elif PDL1 >1e4:#number of molecules/cell:
                 if random.uniform(0, 1) < self.parameters['death_PD1p'] * timestep:
                     print('PD1p DEATH!')
                     return {
@@ -316,38 +318,43 @@ class TCellCompartment(Generator):
                 'cells': self.agents_path},
             }
 
-    def get_PDL1_timeline():
-        timeline = [
-            (0, {('neighbors', 'PDL1'): 0.0}),
-            (100, {('neighbors', 'PDL1'): 0.0}),
-            (200, {('neighbors', 'PDL1'): 0.0}),
-            (300, {('neighbors', 'PDL1'): 5e5}),
-            (400, {('neighbors', 'PDL1'): 5e5}),
-            (500, {('neighbors', 'PDL1'): 5e5}),
-            (600, {('neighbors', 'PDL1'): 5e5}),
-            (700, {('neighbors', 'PDL1'): 0.0}),
-            (800, {('neighbors', 'PDL1'): 0.0}),
-            (900, {('neighbors', 'PDL1'): 0.0}),
-            (1000, {('neighbors', 'PDL1'): 5e5}),
-            (1100, {}),
+def get_PDL1_timeline():
+    timeline = [
+        (0, {('neighbors', 'PDL1'): 0.0}),
+        (100, {('neighbors', 'PDL1'): 0.0}),
+        (200, {('neighbors', 'PDL1'): 0.0}),
+        (300, {('neighbors', 'PDL1'): 5e5}),
+        (400, {('neighbors', 'PDL1'): 5e5}),
+        (500, {('neighbors', 'PDL1'): 5e5}),
+        (600, {('neighbors', 'PDL1'): 5e5}),
+        (700, {('neighbors', 'PDL1'): 0.0}),
+        (800, {('neighbors', 'PDL1'): 0.0}),
+        (900, {('neighbors', 'PDL1'): 0.0}),
+        (1000, {('neighbors', 'PDL1'): 5e5}),
+        (1100, {}),
+    ]
+    return timeline
 
-    def get_MHCI_timeline():
-        timeline = [
-            (0, {('neighbors', 'MHCI'): 0.0}),
-            (100, {('neighbors', 'MHCI'): 0.0}),
-            (200, {('neighbors', 'MHCI'): 0.0}),
-            (300, {('neighbors', 'MHCI'): 5e5}),
-            (400, {('neighbors', 'MHCI'): 5e5}),
-            (500, {('neighbors', 'MHCI'): 5e5}),
-            (600, {('neighbors', 'MHCI'): 5e5}),
-            (700, {('neighbors', 'MHCI'): 0.0}),
-            (800, {('neighbors', 'MHCI'): 0.0}),
-            (900, {('neighbors', 'MHCI'): 0.0}),
-            (1000, {('neighbors', 'MHCI'): 5e5}),
-            (1100, {}),
+def get_MHCI_timeline():
+    timeline = [
+        (0, {('neighbors', 'MHCI'): 0.0}),
+        (100, {('neighbors', 'MHCI'): 0.0}),
+        (200, {('neighbors', 'MHCI'): 0.0}),
+        (300, {('neighbors', 'MHCI'): 5e5}),
+        (400, {('neighbors', 'MHCI'): 5e5}),
+        (500, {('neighbors', 'MHCI'): 5e5}),
+        (600, {('neighbors', 'MHCI'): 5e5}),
+        (700, {('neighbors', 'MHCI'): 0.0}),
+        (800, {('neighbors', 'MHCI'): 0.0}),
+        (900, {('neighbors', 'MHCI'): 0.0}),
+        (1000, {('neighbors', 'MHCI'): 5e5}),
+        (1100, {}),
+    ]
+    return timeline
 
+#TODO - @Eran - how do I get more in the output like graphs/data?
 def test_single_t_cell(
-    total_time=20,
+    total_time=1200,
     timeline=None,
     out_dir='out'):
 
@@ -382,13 +389,19 @@ if __name__ == '__main__':
     args = parser.parse_args()
     no_args = (len(sys.argv) == 1)
 
-    total_time = 1200
+    total_time = 12000
     if args.single or no_args:
         test_single_t_cell(
-            total_time,
-            out_dir)
+            total_time=total_time,
+            out_dir=out_dir)
+
+    if args.timeline:
+        timeline = get_PDL1_timeline()
+        test_single_t_cell(
+            timeline=timeline,
+            out_dir=out_dir)
 
     if args.batch:
         run_batch_t_cells(
-            out_dir,
-            total_time)
+            out_dir=out_dir,
+            total_time=total_time)

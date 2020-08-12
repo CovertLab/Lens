@@ -54,9 +54,9 @@ class TumorProcess(Process):
         'tumor_migration': 0.25,  # um/minute (Weigelin 2012)
         #TODO - @Eran - how to manage migration with square grids if migration is smaller than grid?
 
-        #membrane equillibrium amounts
-        'PDL1p_PDL1_equilibrium': 5e4 #TODO ref
-        'PDL1p_MHCI_equilibrium': 5e4 #TODO ref
+        #membrane equillibrium amounts #TODO
+        'PDL1p_PDL1_equilibrium': 5e4, #TODO ref
+        'PDL1p_MHCI_equilibrium': 5e4, #TODO ref
 
         # settings
         'self_path': tuple(),
@@ -109,11 +109,11 @@ class TumorProcess(Process):
                     '_emit': True,
                     '_updater': 'set',
                 },  # membrane protein, promotes Tumor death and T cell activation with TCR
-                'INFg': {
+                'IFNg': {
                     '_default': 0,
                     '_emit': True,
                 },  # cytokine changes tumor phenotype to MHCI+ and PDL1+
-                'INFg_timer': {
+                'IFNg_timer': {
                     '_default': 0,
                     '_updater': 'accumulate',
                 },  # cytokine changes tumor phenotype
@@ -349,7 +349,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
     no_args = (len(sys.argv) == 1)
 
-    total_time = 1200
+    #TODO - @Eran is time always in seconds?
+    total_time = 12000
     if args.single or no_args:
         test_single_Tumor(
             total_time=total_time,
