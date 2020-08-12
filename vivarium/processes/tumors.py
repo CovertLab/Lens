@@ -34,30 +34,29 @@ class TumorProcess(Process):
     Target behavior:
 
     TODOs
-        - make this work!
+
     """
 
     name = 'Tumor'
     defaults = {
+        'time_step': 60,
         'diameter': 20 * units.um,
-        'initial_PDL1n': 1.0,
-        #TODO - @Eran How do I initialize number of cells in grid (I have this data for both)
-        #   We may not need this now, but thought about this as a parameter
-        #TODO - @Eran - Some of the parameters for different states is the same value.
-        #   Do I need separate parameters for each state if it is the same value?
-        # e.g. death/migration for both states
+        'initial_PDL1n': 1.0, #all start out this way based on data
 
         # death rates
-        'death_PDL1p': 2e-5,  # fairly negligible compared to growth/killing
-        'death_PDL1n': 2e-5,  # same for above
+        'death_apoptosis': 1e-4,  # negligible compared to growth/killing 5 day mean life span (Gong, 2017)
 
         # division rate
-        'PDL1n_growth': 0.3,  # probability of division in 8 hours - 1/24 hr (Eden, 2011)
+        'PDL1n_growth': 7e-4,  # probability of division - 1/24 hr (Eden, 2011)
         #'PDL1p_growth': 0,  # Cells arrested - do not divide (data, Thibaut 2020, Hoekstra 2020)
 
         # migration
-        'PDL1n_migration': 0.25,  # um/minute (Weigelin 2012)
-        'PDL1p_migration': 0.25,   # um/minute (Weigelin 2012)
+        'tumor_migration': 0.25,  # um/minute (Weigelin 2012)
+        #TODO - @Eran - how to manage migration with square grids if migration is smaller than grid?
+
+        #membrane equillibrium amounts
+        'PDL1p_PDL1_equilibrium': 5e4 #TODO ref
+        'PDL1p_MHCI_equilibrium': 5e4 #TODO ref
 
         # settings
         'self_path': tuple(),
@@ -82,6 +81,9 @@ class TumorProcess(Process):
     def ports_schema(self):
         return {
             'globals': {
+                'death': {
+                    '_default': False,
+                    '_updater': 'set'},
                 'divide': {
                     '_default': False,
                     '_updater': 'set'}
@@ -101,45 +103,61 @@ class TumorProcess(Process):
                     '_default': 0,
                     '_emit': True,
                     '_updater': 'accumulate',
-                },
+                }, # membrane protein, promotes T cell exhuastion and deactivation with PD1
                 'MHCI': {
                     '_default': 0,
                     '_emit': True,
                     '_updater': 'set',
-                },  # membrane protein, promotes Tumor death
+                },  # membrane protein, promotes Tumor death and T cell activation with TCR
+                'INFg': {
+                    '_default': 0,
+                    '_emit': True,
+                },  # cytokine changes tumor phenotype to MHCI+ and PDL1+
+                'INFg_timer': {
+                    '_default': 0,
+                    '_updater': 'accumulate',
+                },  # cytokine changes tumor phenotype
             },
             'neighbors': {
                 'PD1': {
                     '_default': 0,
+                    '_emit': True,},
+                'cytotoxic_packets': {
+                    '_default': 0,
                     '_emit': True,
                 },
-                #TODO - @Eran - like the t_cell process, I am still a little uncertain how to connect
-                #   where the 2 processes interact. Is this where the IFNg and cytotoxic packets
-                #   from the t_cell process would come in?
             }
         }
 
     def next_update(self, timestep, states):
         cell_state = states['internal']['cell_state']
+        cytotoxic_packets = states['neighbors']['cytotoxic_packets']
+        IFNg = states['boundary']['IFNg']
+        IFNg_timer = states['boundary']['IFNg_timer']
 
-        # death
-        if cell_state == 'PDL1n':
-            if random.uniform(0, 1) < self.parameters['death_PDL1n'] * timestep:
-                print('PDL1n DEATH!')
-                return {
-                    '_delete': {
-                        'path': self.self_path
-                    }
+        # death by apoptosis
+        if random.uniform(0, 1) < self.parameters['death_apoptosis'] * timestep:
+            print('Apoptosis!')
+            return {
+                '_delete': {
+                    'path': self.self_path},
+                'globals': {
+                    'death': 'apoptosis'
                 }
+            }
 
-        elif cell_state == 'PDL1p':
-            if random.uniform(0, 1) < self.parameters['death_PDL1p'] * timestep:
-                print('PDL1p DEATH!')
-                return {
-                    '_delete': {
-                        'path': self.self_path
-                    }
-                }
+        # death by cytotoxic packets from T cells
+        # should take about 120 min from start of T cell contact and about 2-3 contacts
+        # need to multiply total number by 10 because multiplied T cell number by this amount
+        #number needed for death refs: (Verret, 1987), (Betts, 2004), (Zhang, 2006)
+        if cytotoxic_packets >= 128*10:
+            print('Tcell_death!')
+            return {
+                '_delete': {
+                    'path': self.self_path},
+                'globals': {
+                    'death': 'Tcell_death'}
+            }
 
         # division
         if cell_state == 'PDL1n':
@@ -153,23 +171,20 @@ class TumorProcess(Process):
         elif cell_state == 'PDL1p':
             pass
 
-        #TODO - @Eran - Is there a way to stop simulation if tumor cells reach 5x10^5 total?
-
+        update = {}
         # state transition
         new_cell_state = cell_state
         if cell_state == 'PDL1n':
-            #TODO - if IFNg > 1 ng/mL begin switch to PDL1p -
-            #   target effect 300 um radius around T cells after 40 h
-            #   requires at least 6 h of contact with this conc.
-            #   @Eran - it seems from all my research that tumor cells require a certain amount of
-            #       IFNg present for at least between 6-12 h and then the switch happens completely
-            #       by 24 h. Is there a way to start a timer for this? One thing I thought was that we
-            #       could start a constant production of MHCI and PDL1 from the moment of contact and then
-            #       once those values are above 50,000 then we could switch but not so physiological.
-            #       The dynamics psrobably come from some delay of transcription factor pathways, but I
-            #       am not really interested right now in that level of detail (maybe someday :))
-            #TODO - @Eran - How do I reference the environment - i.e. the number of IFNg molecules present
-            #   directly overlapping with the cancer cell to make this change?
+            if IFNg >= 1*units.ng/units.mL:
+                if IFNg_timer > 6*60*60:
+                    new_cell_state = 'PDL1p'
+                else:
+                    update.update({
+                        'boundary': {
+                            'IFNg_timer':timestep
+                        }
+                    })
+
             pass
         elif cell_state == 'PDL1p':
             pass
@@ -178,34 +193,29 @@ class TumorProcess(Process):
         MHCI = 0
         PDL1 = 0
 
-        # TODO migration - Can do this once I learn
+        # TODO - @Eran - I do not think dynamics of these receptors matters as much, but I put in
+        #  anyways so that we would have them
 
-        # TODO death by killing (at end of time step?)
-        if new_cell_state == 'PDL1n':
-            #TODO - if cytotoxic packets >128 then cell is dead - 120 minute delay
-            # @Eran - If I reference cytotoxic packets above, then can I reference them here?
-            # See other comments about referencing parameters from other processes
-            pass
-        elif new_cell_state == 'PDL1p':
-            #TODO - if cytotoxic packets >128 then cell is dead - 120 minute delay
-            # @Eran - if this parameter of death is the same for both states, do I need to
-            # specify both like this?
+        if new_cell_state == 'PDL1p':
+
+            PDL1 = self.parameters['PDL1p_PDL1_equilibrium']
+            MHCI = self.parameters['PDL1p_MHCI_equilibrium']
+
+        elif new_cell_state == 'PDL1n':
             pass
 
-        return {
-            'internal': {
-                'cell_state': new_cell_state
-            },
-            'boundary': {
-                'MHCI': MHCI,
-                'PDL1': PDL1,
-                #TODO - @Eran - Based on my research, the expression of these ligands is dynamic
-                # and slowly grows the first 6 hours and then dramatically increases the next
-                # 6-12 h and plateaus once they reach their state. We do not necessarily need
-                # that in my opinion for the ligands, but the dealy may be nice for the phenotype
-                # switch. What do you think?
-            },
-        }
+        # TODO migration - Do after the environment is set up
+
+        return update
+        # return {
+        #     'internal': {
+        #         'cell_state': new_cell_state
+        #     },
+        #     'boundary': {
+        #         'MHCI': MHCI,
+        #         'PDL1': PDL1,
+        #     },
+        # }
 
 
 
@@ -258,14 +268,51 @@ class TumorCompartment(Generator):
 def get_PD1_timeline():
     timeline = [
         (0, {('neighbors', 'PD1'): 0.0}),
-        (10, {('neighbors', 'PD1'): 1.0}),
+        (10, {('neighbors', 'PD1'): 5e4}),
         (20, {('neighbors', 'PD1'): 0.0}),
-        (30, {}),
+        (30, {('neighbors', 'PD1'): 5e4}),
+        (40, {('neighbors', 'PD1'): 5e4}),
+        (50, {('neighbors', 'PD1'): 5e4}),
+        (60, {('neighbors', 'PD1'): 5e4}),
+        (70, {('neighbors', 'PD1'): 5e4}),
+        (80, {('neighbors', 'PD1'): 5e4}),
+        (90, {}),
     ]
     return timeline
 
+def get_IFNg_timeline():
+    timeline = [
+        (0, {('boundary', 'IFNg'): 0.0}),
+        (100, {('boundary', 'IFNg'): 1.0}),
+        (200, {('boundary', 'IFNg'): 2.0}),
+        (300, {('boundary', 'IFNg'): 3.0}),
+        (400, {('boundary', 'IFNg'): 4.0}),
+        (500, {('boundary', 'IFNg'): 3.0}),
+        (600, {('boundary', 'IFNg'): 2.0}),
+        (700, {('boundary', 'IFNg'): 2.0}),
+        (800, {('boundary', 'IFNg'): 2.0}),
+        (900, {}),
+    ]
+    return timeline
+
+def get_cytoxic_packets_timeline():
+    timeline = [
+        (0, {('neighbors', 'cytotoxic_packets'): 0.0}),
+        (100, {('neighbors', 'cytotoxic_packets'): 10.0}),
+        (200, {('neighbors', 'cytotoxic_packets'): 20.0}),
+        (300, {('neighbors', 'cytotoxic_packets'): 30.0}),
+        (400, {('neighbors', 'cytotoxic_packets'): 40.0}),
+        (500, {('neighbors', 'cytotoxic_packets'): 70.0}),
+        (600, {('neighbors', 'cytotoxic_packets'): 100.0}),
+        (700, {('neighbors', 'cytotoxic_packets'): 150.0}),
+        (800, {('neighbors', 'cytotoxic_packets'): 160.0}),
+        (900, {}),
+    ]
+    return timeline
+
+
 def test_single_Tumor(
-        total_time=20,
+        total_time=1200,
         timeline=None,
         out_dir='out'):
 
@@ -302,7 +349,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     no_args = (len(sys.argv) == 1)
 
-    total_time = 1000
+    total_time = 1200
     if args.single or no_args:
         test_single_Tumor(
             total_time=total_time,
