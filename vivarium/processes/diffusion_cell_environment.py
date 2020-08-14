@@ -103,7 +103,7 @@ class CellEnvironmentDiffusion(Process):
             molecule: (
                 states['internal'][molecule]
                 - states['external'][molecule]
-            ) * rate * units.mmol
+            ) * rate * timestep * units.mmol
             for molecule, rate in rates.items()
         }
         flux_counts = {
