@@ -37,7 +37,7 @@ class TumorProcess(Process):
 
     """
 
-    name = 'Tumor'
+    name = NAME
     defaults = {
         'time_step': 60,
         'diameter': 20 * units.um,
@@ -62,31 +62,26 @@ class TumorProcess(Process):
         'self_path': tuple(),
     }
 
-    def __init__(self, initial_parameters=None):
-        if initial_parameters is None:
-            initial_parameters = {}
-        parameters = copy.deepcopy(self.defaults)
-        deep_merge(parameters, initial_parameters)
+    def __init__(self, parameters=None):
         super(TumorProcess, self).__init__(parameters)
 
-        if random.uniform(0, 1) < self.defaults['initial_PDL1n']:
+        if random.uniform(0, 1) < self.parameters['initial_PDL1n']:
             self.initial_state = 'PDL1n'
         else:
             self.initial_state = 'PDL1p'
-
-        self.self_path = self.or_default(
-            initial_parameters, 'self_path'
-        )
+        self.self_path = self.parameters['self_path']
 
     def ports_schema(self):
         return {
             'globals': {
                 'death': {
                     '_default': False,
-                    '_updater': 'set'},
+                    '_updater': 'set'
+                },
                 'divide': {
                     '_default': False,
-                    '_updater': 'set'}
+                    '_updater': 'set'
+                }
             },
             'internal': {
                 'cell_state': {
@@ -103,14 +98,14 @@ class TumorProcess(Process):
                     '_default': 0,
                     '_emit': True,
                     '_updater': 'accumulate',
-                }, # membrane protein, promotes T cell exhuastion and deactivation with PD1
+                },  # membrane protein, promotes T cell exhuastion and deactivation with PD1
                 'MHCI': {
                     '_default': 0,
                     '_emit': True,
                     '_updater': 'set',
                 },  # membrane protein, promotes Tumor death and T cell activation with TCR
                 'IFNg': {
-                    '_default': 0,
+                    '_default': 0 * units.ng/units.mL,
                     '_emit': True,
                 },  # cytokine changes tumor phenotype to MHCI+ and PDL1+
                 'IFNg_timer': {
@@ -207,15 +202,6 @@ class TumorProcess(Process):
         # TODO migration - Do after the environment is set up
 
         return update
-        # return {
-        #     'internal': {
-        #         'cell_state': new_cell_state
-        #     },
-        #     'boundary': {
-        #         'MHCI': MHCI,
-        #         'PDL1': PDL1,
-        #     },
-        # }
 
 
 
@@ -282,15 +268,15 @@ def get_PD1_timeline():
 
 def get_IFNg_timeline():
     timeline = [
-        (0, {('boundary', 'IFNg'): 0.0}),
-        (100, {('boundary', 'IFNg'): 1.0}),
-        (200, {('boundary', 'IFNg'): 2.0}),
-        (300, {('boundary', 'IFNg'): 3.0}),
-        (400, {('boundary', 'IFNg'): 4.0}),
-        (500, {('boundary', 'IFNg'): 3.0}),
-        (600, {('boundary', 'IFNg'): 2.0}),
-        (700, {('boundary', 'IFNg'): 2.0}),
-        (800, {('boundary', 'IFNg'): 2.0}),
+        (0, {('boundary', 'IFNg'): 0.0*units.ng/units.mL}),
+        (100, {('boundary', 'IFNg'): 1.0*units.ng/units.mL}),
+        (200, {('boundary', 'IFNg'): 2.0*units.ng/units.mL}),
+        (300, {('boundary', 'IFNg'): 3.0*units.ng/units.mL}),
+        (400, {('boundary', 'IFNg'): 4.0*units.ng/units.mL}),
+        (500, {('boundary', 'IFNg'): 3.0*units.ng/units.mL}),
+        (600, {('boundary', 'IFNg'): 2.0*units.ng/units.mL}),
+        (700, {('boundary', 'IFNg'): 2.0*units.ng/units.mL}),
+        (800, {('boundary', 'IFNg'): 2.0*units.ng/units.mL}),
         (900, {}),
     ]
     return timeline
@@ -306,6 +292,57 @@ def get_cytoxic_packets_timeline():
         (600, {('neighbors', 'cytotoxic_packets'): 100.0}),
         (700, {('neighbors', 'cytotoxic_packets'): 150.0}),
         (800, {('neighbors', 'cytotoxic_packets'): 160.0}),
+        (900, {}),
+    ]
+    return timeline
+
+def get_combined_timeline():
+    timeline = [
+        (0, {
+            ('neighbors', 'cytotoxic_packets'): 0.0,
+            ('boundary', 'IFNg'): 0.0*units.ng/units.mL,
+            ('neighbors', 'PD1'): 0.0,
+        }),
+        (100, {
+            ('neighbors', 'cytotoxic_packets'): 10.0,
+            ('boundary', 'IFNg'): 1.0*units.ng/units.mL,
+            ('neighbors', 'PD1'): 5e4,
+        }),
+        (200, {
+            ('neighbors', 'cytotoxic_packets'): 20.0,
+            ('boundary', 'IFNg'): 2.0 * units.ng / units.mL,
+            ('neighbors', 'PD1'): 0.0,
+        }),
+        (300, {
+            ('neighbors', 'cytotoxic_packets'): 30.0,
+            ('boundary', 'IFNg'): 3.0 * units.ng / units.mL,
+            ('neighbors', 'PD1'): 5e4,
+        }),
+        (400, {
+            ('neighbors', 'cytotoxic_packets'): 40.0,
+            ('boundary', 'IFNg'): 4.0 * units.ng / units.mL,
+            ('neighbors', 'PD1'): 5e4,
+        }),
+        (500, {
+            ('neighbors', 'cytotoxic_packets'): 70.0,
+            ('boundary', 'IFNg'): 3.0 * units.ng / units.mL,
+            ('neighbors', 'PD1'): 5e4,
+        }),
+        (600, {
+            ('neighbors', 'cytotoxic_packets'): 100.0,
+            ('boundary', 'IFNg'): 2.0 * units.ng / units.mL,
+            ('neighbors', 'PD1'): 5e4,
+        }),
+        (700, {
+            ('neighbors', 'cytotoxic_packets'): 150.0,
+            ('boundary', 'IFNg'): 2.0 * units.ng / units.mL,
+            ('neighbors', 'PD1'): 5e4,
+        }),
+        (800, {
+            ('neighbors', 'cytotoxic_packets'): 160.0,
+            ('boundary', 'IFNg'): 2.0 * units.ng / units.mL,
+            ('neighbors', 'PD1'): 5e4,
+        }),
         (900, {}),
     ]
     return timeline
@@ -329,13 +366,10 @@ def test_single_Tumor(
     timeseries = simulate_process_in_experiment(Tumor_process, settings)
 
     # plot
-    plot_settings = {}
+    plot_settings = {'remove_zeros': False}
     plot_simulation_output(timeseries, plot_settings, out_dir)
 
 
-def run_batch_Tumor(out_dir='out'):
-    import ipdb; ipdb.set_trace()
-    pass
 
 if __name__ == '__main__':
     out_dir = os.path.join(PROCESS_OUT_DIR, NAME)
@@ -345,24 +379,18 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='tumor cells')
     parser.add_argument('--single', '-s', action='store_true', default=False)
     parser.add_argument('--timeline', '-t', action='store_true', default=False)
-    parser.add_argument('--batch', '-b', action='store_true', default=False)
     args = parser.parse_args()
     no_args = (len(sys.argv) == 1)
 
     #TODO - @Eran is time always in seconds?
     total_time = 12000
-    if args.single or no_args:
+    if args.single:
         test_single_Tumor(
             total_time=total_time,
             out_dir=out_dir)
 
-    if args.timeline:
-        timeline = get_PD1_timeline()
+    if args.timeline or no_args:
+        timeline = get_combined_timeline()
         test_single_Tumor(
             timeline=timeline,
             out_dir=out_dir)
-
-    if args.batch:
-        run_batch_Tumor(
-            out_dir=out_dir,
-            total_time=total_time)
