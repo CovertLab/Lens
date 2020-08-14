@@ -23,6 +23,14 @@ NAME = 'T_cell'
 TIMESTEP = 60 * 10  # seconds
 
 
+def get_probability_timestep(probability_parameter, timescale, timestep):
+    ''' transition probability as function of time '''
+    rate = -math.log(1 - probability_parameter)
+    timestep_fraction = timestep / timescale
+    return 1 - math.exp(-rate * timestep_fraction)
+
+
+
 class TCellProcess(Process):
     """T-cell process with 2 states
 
@@ -143,10 +151,11 @@ class TCellProcess(Process):
 
         # death
         if cell_state == 'PD1n':
-            rate = -math.log(1 - self.parameters['death_PD1n_14hr'])  # rate for probability function of time
-            timestep_fraction = timestep / 50400  # for what fraction of 14 hours? (14*60*60 seconds)
-            prob_divide = 1 - math.exp(-rate * timestep_fraction)
-            if random.uniform(0, 1) < prob_divide:
+            prob_death = get_probability_timestep(
+                self.parameters['death_PD1n_14hr'],
+                50400,  # 14 hours (14*60*60 seconds)
+                timestep)
+            if random.uniform(0, 1) < prob_death:
                 print('DEATH PD1- cell!')
                 return {
                     '_delete': {
@@ -156,9 +165,10 @@ class TCellProcess(Process):
 
         elif cell_state == 'PD1p':
             if PDL1 <= self.parameters['PDL1_critical_number']:
-                rate = -math.log(1 - self.parameters['death_PD1p_next_to_PDL1p_14hr'])  # rate for probability function of time
-                timestep_fraction = timestep / 50400  # for what fraction of 14 hours? (14*60*60 seconds)
-                prob_death = 1 - math.exp(-rate * timestep_fraction)
+                prob_death = get_probability_timestep(
+                    self.parameters['death_PD1p_next_to_PDL1p_14hr'],
+                    50400,  # 14 hours (14*60*60 seconds)
+                    timestep)
                 if random.uniform(0, 1) < prob_death:
                     print('DEATH PD1+ cell with PDL1!')
                     return {
@@ -168,9 +178,10 @@ class TCellProcess(Process):
                     }
 
             else:
-                rate = -math.log(1 - self.parameters['death_PD1p_14hr'])  # rate for probability function of time
-                timestep_fraction = timestep / 50400  # for what fraction of 14 hours? (14*60*60 seconds)
-                prob_death = 1 - math.exp(-rate * timestep_fraction)
+                prob_death = get_probability_timestep(
+                    self.parameters['death_PD1p_14hr'],
+                    50400,  # 14 hours (14*60*60 seconds)
+                    timestep)
                 if random.uniform(0, 1) < prob_death:
                     print('DEATH PD1+ cell without PDL1!')
                     return {
@@ -181,9 +192,10 @@ class TCellProcess(Process):
 
         # division
         if cell_state == 'PD1n':
-            rate = -math.log(1 - self.parameters['PD1n_growth_8hr'])  # rate for probability function of time
-            timestep_fraction = timestep / 28800  # for what fraction of 8 hours? (8*60*60 seconds)
-            prob_divide = 1 - math.exp(-rate * timestep_fraction)
+            prob_divide = get_probability_timestep(
+                self.parameters['PD1n_growth_8hr'],
+                28800,  # 8 hours (8*60*60 seconds)
+                timestep)
             if random.uniform(0, 1) < prob_divide:
                 print('DIVIDE PD1- cell!')
                 return {
@@ -193,9 +205,10 @@ class TCellProcess(Process):
                 }
 
         elif cell_state == 'PD1p':
-            rate = -math.log(1 - self.parameters['PD1p_growth_8hr'])  # rate for probability function of time
-            timestep_fraction = timestep / 28800  # for what fraction of 8 hours? (8*60*60 seconds)
-            prob_divide = 1 - math.exp(-rate * timestep_fraction)
+            prob_divide = get_probability_timestep(
+                self.parameters['PD1p_growth_8hr'],
+                28800,  # 8 hours (8*60*60 seconds)
+                timestep)
             if random.uniform(0, 1) < prob_divide:
                 print('DIVIDE PD1+ cell!')
                 return {
@@ -207,9 +220,10 @@ class TCellProcess(Process):
         # state transition
         new_cell_state = cell_state
         if cell_state == 'PD1n':
-            rate = -math.log(1 - self.parameters['transition_PD1n_to_PD1p_10days'])  # rate for probability function of time
-            timestep_fraction = timestep / 864000  # for what fraction of 10 days? (60*60*24*10 seconds)
-            prob_transition = 1 - math.exp(-rate * timestep_fraction)
+            prob_transition = get_probability_timestep(
+                self.parameters['transition_PD1n_to_PD1p_10days'],
+                864000,  # 10 days (60*60*24*10 seconds)
+                timestep)
             if random.uniform(0, 1) < prob_transition:
                 new_cell_state = 'PD1p'
         elif cell_state == 'PD1p':
