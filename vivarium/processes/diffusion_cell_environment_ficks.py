@@ -24,6 +24,7 @@ class CellEnvironmentDiffusionFicks(Process):
         'default_default': 0,
         'permeability': 1e-6 * units.cm / units.sec,
         'surface_area_mass_ratio': 132 * units.cm**2 / units.mg,
+        'volume_variable': 'volume',
     }
 
     def ports_schema(self):
@@ -54,7 +55,7 @@ class CellEnvironmentDiffusionFicks(Process):
                 for molecule in self.parameters['molecules_to_diffuse']
             },
             'global': {
-                'volume': {
+                self.parameters['volume_variable']: {
                     '_default': self.parameters['default_default'],
                 },
                 'location': {
@@ -80,7 +81,8 @@ class CellEnvironmentDiffusionFicks(Process):
 
         for port, port_conf in self.parameters['default_state'].items():
             for variable, default in port_conf.items():
-                schema[port][variable]['_default'] = default
+                if variable in schema[port]:
+                    schema[port][variable]['_default'] = default
 
         return schema
 
@@ -103,10 +105,11 @@ class CellEnvironmentDiffusionFicks(Process):
             molecule: flux * AVOGADRO
             for molecule, flux in flux_mmol.items()
         }
-        if not isinstance(states['global']['volume'], Quantity):
-            cell_volume = states['global']['volume'] * units.fL
+        volume_key = self.parameters['volume_variable']
+        if not isinstance(states['global'][volume_key], Quantity):
+            cell_volume = states['global'][volume_key] * units.fL
         else:
-            cell_volume = states['global']['volume']
+            cell_volume = states['global'][volume_key]
         update = {
             'fields': {
                 molecule: {
