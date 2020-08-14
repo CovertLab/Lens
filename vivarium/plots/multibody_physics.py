@@ -118,15 +118,22 @@ def plot_agent(ax, data, color, agent_shape):
         ax.add_line(line)
 
 
-def plot_agents(ax, agents, agent_colors={}, agent_shape='segment'):
+def plot_agents(
+    ax, agents, agent_colors={}, agent_shape='segment', dead_color=None
+):
     '''
     - ax: the axis for plot
     - agents: a dict with {agent_id: agent_data} and
         agent_data a dict with keys location, angle, length, width
     - agent_colors: dict with {agent_id: hsv color}
+    - dead_color: List of 3 floats that define HSV color to use for dead
+      cells. Dead cells only get treated differently if this is set.
     '''
     for agent_id, agent_data in agents.items():
         color = agent_colors.get(agent_id, [DEFAULT_HUE]+DEFAULT_SV)
+        if dead_color:
+            if agent_data['boundary']['dead']:
+                color = dead_color
         plot_agent(ax, agent_data, color, agent_shape)
 
 def mutate_color(baseline_hsv):
@@ -222,6 +229,16 @@ def plot_snapshots(data, plot_config):
               ``out`` by default.
             * **filename** (:py:class:`str`): Base name of output file.
               ``snapshots`` by default.
+            * **skip_fields** (:py:class:`Iterable`): Keys of fields to
+              exclude from the plot. This takes priority over
+              ``include_fields``.
+            * **include_fields** (:py:class:`Iterable`): Keys of fields
+              to plot.
+            * **field_label_size** (:py:class:`float`): Font size of the
+              field label.
+            * **dead_color** (:py:class:`list` of 3 :py:class:`float`s):
+              Color for dead cells in HSV. Defaults to [0, 0, 0], which
+              is black.
     '''
     check_plt_backend()
 
@@ -230,6 +247,10 @@ def plot_snapshots(data, plot_config):
     filename = plot_config.get('filename', 'snapshots')
     agent_shape = plot_config.get('agent_shape', 'segment')
     phylogeny_names = plot_config.get('phylogeny_names', True)
+    skip_fields = plot_config.get('skip_fields', [])
+    include_fields = plot_config.get('include_fields', None)
+    field_label_size = plot_config.get('field_label_size', 20)
+    dead_color = plot_config.get('dead_color', [0, 0, 0])
 
     # get data
     agents = data.get('agents', {})
@@ -254,9 +275,12 @@ def plot_snapshots(data, plot_config):
     snapshot_times = [time_vec[i] for i in time_indices]
 
     # get fields id and range
-    field_ids = []
     if fields:
-        field_ids = list(fields[time_vec[0]].keys())
+        if include_fields is None:
+            field_ids = set(fields[time_vec[0]].keys())
+        else:
+            field_ids = set(include_fields)
+        field_ids -= set(skip_fields)
         field_range = {}
         for field_id in field_ids:
             field_min = min([min(min(field_data[field_id])) for t, field_data in fields.items()])
@@ -297,7 +321,11 @@ def plot_snapshots(data, plot_config):
 
                 ax = init_axes(
                     fig, edge_length_x, edge_length_y, grid, row_idx,
-                    col_idx, time, field_id
+                    col_idx, time, field_id, field_label_size,
+                )
+                ax.tick_params(
+                    axis='both', which='both', bottom=False, top=False,
+                    left=False, right=False,
                 )
 
                 # transpose field to align with agents
@@ -311,12 +339,21 @@ def plot_snapshots(data, plot_config):
                                 cmap='BuPu')
                 if agents:
                     agents_now = agents[time]
-                    plot_agents(ax, agents_now, agent_colors, agent_shape)
+                    plot_agents(
+                        ax, agents_now,agent_colors, agent_shape,
+                        dead_color,
+                    )
+
 
                 # colorbar in new column after final snapshot
-                if col_idx == n_snapshots-1 and (vmin != vmax):
+                if col_idx == n_snapshots - 1:
                     cbar_col = col_idx + 1
                     ax = fig.add_subplot(grid[row_idx, cbar_col])
+                    if row_idx == 0:
+                        ax.set_title('Concentration (mmol/L)', y=1.08)
+                    ax.axis('off')
+                    if vmin == vmax:
+                        continue
                     divider = make_axes_locatable(ax)
                     cax = divider.append_axes("left", size="5%", pad=0.0)
                     fig.colorbar(im, cax=cax, format='%.6f')
@@ -332,8 +369,8 @@ def plot_snapshots(data, plot_config):
                 plot_agents(ax, agents_now, agent_colors, agent_shape)
 
     fig_path = os.path.join(out_dir, filename)
-    plt.subplots_adjust(wspace=0.7, hspace=0.1)
-    plt.savefig(fig_path, bbox_inches='tight')
+    fig.subplots_adjust(wspace=0.7, hspace=0.1)
+    fig.savefig(fig_path, bbox_inches='tight')
     plt.close(fig)
 
 def get_fluorescent_color(baseline_hsv, tag_color, intensity):
@@ -388,6 +425,8 @@ def plot_tags(data, plot_config):
               value being the molecule's count variable.
             * **background_color** (:py:class:`str`): use matplotlib colors,
               ``black`` by default
+            * **tag_label_size** (:py:class:`float`): The font size for
+              the tag name label
     '''
     check_plt_backend()
 
@@ -397,6 +436,8 @@ def plot_tags(data, plot_config):
     agent_shape = plot_config.get('agent_shape', 'segment')
     background_color = plot_config.get('background_color', 'black')
     tagged_molecules = plot_config['tagged_molecules']
+    tag_path_name_map = plot_config.get('tag_path_name_map', {})
+    tag_label_size = plot_config.get('tag_label_size', 20)
 
     if tagged_molecules == []:
         raise ValueError('At least one molecule must be tagged.')
@@ -447,17 +488,25 @@ def plot_tags(data, plot_config):
     plt.rcParams.update({'font.size': 36})
 
     # plot tags
-    for col_idx, (time_idx, time) in enumerate(
-        zip(time_indices, snapshot_times)
-    ):
-        for row_idx, tag_id in enumerate(tag_ranges.keys()):
+    for row_idx, tag_id in enumerate(tag_ranges.keys()):
+        used_agent_colors = []
+        concentrations = []
+        for col_idx, (time_idx, time) in enumerate(
+            zip(time_indices, snapshot_times)
+        ):
+            tag_name = tag_path_name_map.get(tag_id, tag_id)
             ax = init_axes(
                 fig, edge_length_x, edge_length_y, grid,
-                row_idx, col_idx, time, tag_id,
+                row_idx, col_idx, time, tag_name, tag_label_size,
+            )
+            ax.tick_params(
+                axis='both', which='both', bottom=False, top=False,
+                left=False, right=False,
             )
             ax.set_facecolor(background_color)
 
             # update agent colors based on tag_level
+            min_tag, max_tag = tag_ranges[tag_id]
             agent_tag_colors = {}
             for agent_id, agent_data in agents[time].items():
                 agent_color = BASELINE_TAG_COLOR
@@ -466,21 +515,45 @@ def plot_tags(data, plot_config):
                 count = get_value_from_path(agent_data, tag_id)
                 volume = agent_data.get('boundary', {}).get('volume', 0)
                 level = count / volume if volume else 0
-                min_tag, max_tag = tag_ranges[tag_id]
                 if min_tag != max_tag:
+                    concentrations.append(level)
                     intensity = max((level - min_tag), 0)
                     intensity = min(intensity / (max_tag - min_tag), 1)
                     tag_color = tag_colors[tag_id]
                     agent_color = get_fluorescent_color(
                         BASELINE_TAG_COLOR, tag_color, intensity)
+                    agent_rgb = matplotlib.colors.hsv_to_rgb(agent_color)
+                    used_agent_colors.append(agent_rgb)
 
                 agent_tag_colors[agent_id] = agent_color
 
             plot_agents(ax, agents[time], agent_tag_colors, agent_shape)
 
+            # colorbar in new column after final snapshot
+            if col_idx == n_snapshots - 1:
+                cbar_col = col_idx + 1
+                ax = fig.add_subplot(grid[row_idx, cbar_col])
+                if row_idx == 0:
+                    ax.set_title('Concentration (counts/fL)', y=1.08)
+                ax.axis('off')
+                if min_tag == max_tag:
+                    continue
+                divider = make_axes_locatable(ax)
+                cax = divider.append_axes("left", size="5%", pad=0.0)
+                norm = matplotlib.colors.Normalize()
+                # Sort colors and concentrations by concentration
+                sorted_idx = np.argsort(concentrations)
+                norm.autoscale(used_agent_colors)
+                cmap = matplotlib.colors.ListedColormap(
+                    np.array(used_agent_colors)[sorted_idx])
+                mappable = matplotlib.cm.ScalarMappable(norm, cmap)
+                mappable.set_array(np.array(concentrations)[sorted_idx])
+                mappable.set_clim(min_tag, max_tag)
+                fig.colorbar(mappable, cax=cax, format='%.6f')
+
     fig_path = os.path.join(out_dir, filename)
-    plt.subplots_adjust(wspace=0.7, hspace=0.1)
-    plt.savefig(fig_path, bbox_inches='tight')
+    fig.subplots_adjust(wspace=0.7, hspace=0.1)
+    fig.savefig(fig_path, bbox_inches='tight')
     plt.close(fig)
 
 def initialize_spatial_figure(bounds, fontsize=18):
@@ -509,8 +582,9 @@ def initialize_spatial_figure(bounds, fontsize=18):
     [x_bins, y_bins] = [int(n_ticks * edge / min_edge) for edge in [x_length, y_length]]
     plt.locator_params(axis='y', nbins=y_bins)
     plt.locator_params(axis='x', nbins=x_bins)
+    ax = plt.gca()
 
-    return fig
+    return fig, ax
 
 def get_agent_trajectories(agents, times):
     trajectories = {}
@@ -528,12 +602,37 @@ def get_agent_trajectories(agents, times):
         }
     return trajectories
 
+def get_agent_type_colors(agent_ids):
+    """ get colors for each agent id by agent type
+    Assumes that agents of the same type share the beginning
+    of their name, followed by '_x' with x as a single number
+    TODO -- make this more general for more digits and other comparisons"""
+    agent_type_colors = {}
+    agent_types = {}
+    for agent1, agent2 in itertools.combinations(agent_ids, 2):
+        if agent1[0:-2] == agent2[0:-2]:
+            agent_type = agent1[0:-2]
+            if agent_type not in agent_type_colors:
+                color = plt.rcParams['axes.prop_cycle'].by_key()['color'][len(agent_type_colors)]
+                agent_type_colors[agent_type] = color
+            else:
+                color = agent_type_colors[agent_type]
+            agent_types[agent1] = agent_type
+            agent_types[agent2] = agent_type
+    for agent in agent_ids:
+        if agent not in agent_types:
+            color = plt.rcParams['axes.prop_cycle'].by_key()['color'][len(agent_type_colors)]
+            agent_type_colors[agent] = color
+            agent_types[agent] = agent
+
+    return agent_types, agent_type_colors
+
 def plot_agent_trajectory(agent_timeseries, config, out_dir='out', filename='trajectory'):
     check_plt_backend()
 
     # trajectory plot settings
     legend_fontsize = 18
-    markersize = 30
+    markersize = 25
 
     bounds = config.get('bounds', DEFAULT_BOUNDS)
     field = config.get('field')
@@ -542,6 +641,7 @@ def plot_agent_trajectory(agent_timeseries, config, out_dir='out', filename='tra
     # get agents
     times = np.array(agent_timeseries['time'])
     agents = agent_timeseries['agents']
+    agent_types, agent_type_colors = get_agent_type_colors(list(agents.keys()))
 
     if rotate_90:
         field = rotate_field_90(field)
@@ -553,7 +653,11 @@ def plot_agent_trajectory(agent_timeseries, config, out_dir='out', filename='tra
     trajectories = get_agent_trajectories(agents, times)
 
     # initialize a spatial figure
-    fig = initialize_spatial_figure(bounds, legend_fontsize)
+    fig, ax = initialize_spatial_figure(bounds, legend_fontsize)
+
+    # move x axis to top
+    ax.tick_params(labelbottom=False,labeltop=True,bottom=False,top=True)
+    ax.xaxis.set_label_coords(0.5, 1.12)
 
     if field is not None:
         field = np.transpose(field)
@@ -561,10 +665,10 @@ def plot_agent_trajectory(agent_timeseries, config, out_dir='out', filename='tra
         im = plt.imshow(field,
                         origin='lower',
                         extent=[0, shape[1], 0, shape[0]],
-                        # vmin=vmin,
-                        # vmax=vmax,
-                        cmap='Greys'
-                        )
+                        cmap='Greys')
+        # colorbar for field concentrations
+        cbar = plt.colorbar(im, pad=0.02, aspect=50, shrink=0.7)
+        cbar.set_label('concentration', rotation=270, labelpad=20)
 
     for agent_id, trajectory_data in trajectories.items():
         agent_trajectory = trajectory_data['value']
@@ -574,25 +678,35 @@ def plot_agent_trajectory(agent_timeseries, config, out_dir='out', filename='tra
         x_coord = locations_array[:, 0]
         y_coord = locations_array[:, 1]
 
+        # get agent type and color
+        agent_type = agent_types[agent_id]
+        agent_color = agent_type_colors[agent_type]
+
         # plot line
-        plt.plot(x_coord, y_coord, linewidth=2, label=agent_id)
-        plt.plot(x_coord[0], y_coord[0],
+        ax.plot(x_coord, y_coord, linewidth=2, color=agent_color, label=agent_type)
+        ax.plot(x_coord[0], y_coord[0],
                  color=(0.0, 0.8, 0.0), marker='.', markersize=markersize)  # starting point
-        plt.plot(x_coord[-1], y_coord[-1],
+        ax.plot(x_coord[-1], y_coord[-1],
                  color='r', marker='.', markersize=markersize)  # ending point
 
-    # create legend for agent ids
-    first_legend = plt.legend(
-        title='agent ids', loc='center left', bbox_to_anchor=(1.01, 0.5), prop={'size': legend_fontsize})
-    ax = plt.gca().add_artist(first_legend)
+    # create legend for agent types
+    agent_labels = [
+        mlines.Line2D([], [], color=agent_color, linewidth=2, label=agent_type)
+        for agent_type, agent_color in agent_type_colors.items()]
+    agent_legend = plt.legend(
+        title='agent type', handles=agent_labels, loc='upper center',
+        bbox_to_anchor=(0.3, 0.0), ncol=2, prop={'size': legend_fontsize})
+    ax.add_artist(agent_legend)
 
     # create a legend for start/end markers
     start = mlines.Line2D([], [],
             color=(0.0, 0.8, 0.0), marker='.', markersize=markersize, linestyle='None', label='start')
     end = mlines.Line2D([], [],
             color='r', marker='.', markersize=markersize, linestyle='None', label='end')
-    plt.legend(
-        handles=[start, end], loc='upper right', prop={'size': legend_fontsize})
+    marker_legend = plt.legend(
+        title='trajectory', handles=[start, end], loc='upper center',
+        bbox_to_anchor=(0.7, 0.0), ncol=2, prop={'size': legend_fontsize})
+    ax.add_artist(marker_legend)
 
     fig_path = os.path.join(out_dir, filename)
     plt.subplots_adjust(wspace=0.7, hspace=0.1)
@@ -640,7 +754,7 @@ def plot_temporal_trajectory(agent_timeseries, config, out_dir='out', filename='
     trajectories = get_agent_trajectories(agents, times)
 
     # initialize a spatial figure
-    fig = initialize_spatial_figure(bounds)
+    fig, ax = initialize_spatial_figure(bounds)
 
     if field is not None:
         field = np.transpose(field)
@@ -685,6 +799,10 @@ def plot_motility(timeseries, out_dir='out', filename='motility_analysis'):
     expected_velocity = 14.2  # um/s (Berg)
     expected_angle_between_runs = 68 # degrees (Berg)
 
+    # time of motor behavior without chemotaxis
+    expected_run_duration = 0.42  # s (Berg)
+    expected_tumble_duration = 0.14  # s (Berg)
+
     times = timeseries['time']
     agents = timeseries['agents']
 
@@ -695,10 +813,16 @@ def plot_motility(timeseries, out_dir='out', filename='motility_analysis'):
             'angle_between_runs': [],
             'angle': [],
             'thrust': [],
-            'torque': []}
+            'torque': [],
+            'run_duration': [],
+            'tumble_duration': [],
+            'run_time': [],
+            'tumble_time': [],
+        }
         for agent_id in list(agents.keys())}
 
     for agent_id, agent_data in agents.items():
+
         boundary_data = agent_data['boundary']
         cell_data = agent_data['cell']
         previous_time = times[0]
@@ -706,6 +830,9 @@ def plot_motility(timeseries, out_dir='out', filename='motility_analysis'):
         previous_location = boundary_data['location'][0]
         previous_run_angle = boundary_data['angle'][0]
         previous_motor_state = cell_data['motor_state'][0]  # 1 for tumble, 0 for run
+        run_duration = 0.0
+        tumble_duration = 0.0
+        dt = 0.0
 
         # go through each time point for this agent
         for time_idx, time in enumerate(times):
@@ -739,6 +866,26 @@ def plot_motility(timeseries, out_dir='out', filename='motility_analysis'):
                     angle_between_runs = angle - previous_run_angle
                 previous_run_angle = angle
 
+            # get run and tumble durations
+            if motor_state == 0:  # run
+                if previous_motor_state == 1:
+                    # the run just started -- save the previous tumble time and reset to 0
+                    motility_analysis[agent_id]['tumble_duration'].append(tumble_duration)
+                    motility_analysis[agent_id]['tumble_time'].append(time)
+                    tumble_duration = 0
+                elif previous_motor_state == 0:
+                    # the run is continuing
+                    run_duration += dt
+            elif motor_state == 1:
+                if previous_motor_state == 0:
+                    # the tumble just started -- save the previous run time and reset to 0
+                    motility_analysis[agent_id]['run_duration'].append(run_duration)
+                    motility_analysis[agent_id]['run_time'].append(time)
+                    run_duration = 0
+                elif previous_motor_state == 1:
+                    # the tumble is continuing
+                    tumble_duration += dt
+
             # save data
             motility_analysis[agent_id]['velocity'].append(velocity)
             motility_analysis[agent_id]['angular_velocity'].append(angular_velocity)
@@ -755,10 +902,11 @@ def plot_motility(timeseries, out_dir='out', filename='motility_analysis'):
 
     # plot results
     cols = 1
-    rows = 5
-    fig = plt.figure(figsize=(6 * cols, 1.5 * rows))
+    rows = 7
+    fig = plt.figure(figsize=(6 * cols, 1.2 * rows))
     plt.rcParams.update({'font.size': 12})
 
+    # plot velocity
     ax1 = plt.subplot(rows, cols, 1)
     for agent_id, analysis in motility_analysis.items():
         velocity = analysis['velocity']
@@ -770,6 +918,7 @@ def plot_motility(timeseries, out_dir='out', filename='motility_analysis'):
     ax1.set_xlabel('time')
     # ax1.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
+    # plot angular velocity
     ax2 = plt.subplot(rows, cols, 2)
     for agent_id, analysis in motility_analysis.items():
         angular_velocity = analysis['angular_velocity']
@@ -778,7 +927,22 @@ def plot_motility(timeseries, out_dir='out', filename='motility_analysis'):
     ax2.set_xlabel('time')
     # ax2.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
+    # plot thrust
     ax3 = plt.subplot(rows, cols, 3)
+    for agent_id, analysis in motility_analysis.items():
+        thrust = analysis['thrust']
+        ax3.plot(times, thrust, label=agent_id)
+    ax3.set_ylabel('thrust')
+
+    # plot torque
+    ax4 = plt.subplot(rows, cols, 4)
+    for agent_id, analysis in motility_analysis.items():
+        torque = analysis['torque']
+        ax4.plot(times, torque, label=agent_id)
+    ax4.set_ylabel('torque')
+
+    # plot angles between runs
+    ax5 = plt.subplot(rows, cols, 5)
     for agent_id, analysis in motility_analysis.items():
         # convert to degrees
         angle_between_runs = [
@@ -793,40 +957,55 @@ def plot_motility(timeseries, out_dir='out', filename='motility_analysis'):
         plot_times = [point[0] for point in run_angle_points]
         plot_angles = [point[1] for point in run_angle_points]
         mean_angle_change = np.mean(plot_angles)
-        ax3.scatter(plot_times, plot_angles, label=agent_id)
-        ax3.axhline(y=mean_angle_change, linestyle='dashed') #, label='mean_' + agent_id)
-    ax3.set_ylabel(u'degrees \n between runs')
-    ax3.axhline(y=expected_angle_between_runs, color='r', linestyle='dashed', label='expected')
-    ax3.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+        ax5.scatter(plot_times, plot_angles, label=agent_id)
+        ax5.axhline(y=mean_angle_change, linestyle='dashed') #, label='mean_' + agent_id)
+    ax5.set_ylabel(u'degrees \n between runs')
+    ax5.axhline(y=expected_angle_between_runs, color='r', linestyle='dashed', label='expected')
+    ax5.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
-    ax4 = plt.subplot(rows, cols, 4)
+    # plot run durations
+    ax6 = plt.subplot(rows, cols, 6)
     for agent_id, analysis in motility_analysis.items():
-        thrust = analysis['thrust']
-        ax4.plot(times, thrust, label=agent_id)
-    ax4.set_ylabel('thrust')
+        run_duration = analysis['run_duration']
+        run_time = analysis['run_time']
+        mean_run_duration = np.mean(run_duration)
+        ax6.scatter(run_time, run_duration, label=agent_id)
+        ax6.axhline(y=mean_run_duration, linestyle='dashed')
+    ax6.set_ylabel('run \n duration \n (s)')
+    ax6.axhline(y=expected_run_duration, color='r', linestyle='dashed', label='expected')
+    ax6.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
-    ax5 = plt.subplot(rows, cols, 5)
+    # plot tumble durations
+    ax7 = plt.subplot(rows, cols, 7)
     for agent_id, analysis in motility_analysis.items():
-        torque = analysis['torque']
-        ax5.plot(times, torque, label=agent_id)
-    ax5.set_ylabel('torque')
+        tumble_duration = analysis['tumble_duration']
+        tumble_time = analysis['tumble_time']
+        mean_tumble_duration = np.mean(tumble_duration)
+        ax7.scatter(tumble_time, tumble_duration, label=agent_id)
+        ax7.axhline(y=mean_tumble_duration, linestyle='dashed')
+    ax7.set_ylabel('tumble \n duration \n (s)')
+    ax7.axhline(y=expected_tumble_duration, color='r', linestyle='dashed', label='expected')
+    ax7.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
     fig_path = os.path.join(out_dir, filename)
-    plt.subplots_adjust(wspace=0.7, hspace=0.1)
+    plt.subplots_adjust(wspace=0.7, hspace=0.4)
     plt.savefig(fig_path, bbox_inches='tight')
     plt.close(fig)
 
 
 def init_axes(
     fig, edge_length_x, edge_length_y, grid, row_idx, col_idx, time,
-    molecule,
+    molecule, ylabel_size=20
 ):
     ax = fig.add_subplot(grid[row_idx, col_idx])
     if row_idx == 0:
         plot_title = 'time: {:.4f} s'.format(float(time))
         plt.title(plot_title, y=1.08)
     if col_idx == 0:
-        ax.set_ylabel(molecule, fontsize=20)
+        ax.set_ylabel(
+            molecule, fontsize=ylabel_size, rotation='horizontal',
+            horizontalalignment='right',
+        )
     ax.set(xlim=[0, edge_length_x], ylim=[0, edge_length_y], aspect=1)
     ax.set_yticklabels([])
     ax.set_xticklabels([])

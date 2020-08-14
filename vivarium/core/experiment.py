@@ -9,6 +9,7 @@ from __future__ import absolute_import, division, print_function
 
 import os
 import copy
+import math
 import random
 import datetime
 
@@ -31,6 +32,7 @@ from vivarium.library.dict_utils import merge_dicts, deep_merge, deep_merge_chec
 from vivarium.core.emitter import get_emitter
 from vivarium.core.process import (
     Process,
+    ParallelProcess,
     serialize_dictionary,
 )
 from vivarium.core.registry import (
@@ -81,12 +83,11 @@ def assoc_path(d, path, value):
 def update_in(d, path, f):
     if path:
         head = path[0]
-        if len(path) == 1:
-            d[head] = f(d.get(head, None))
-        else:
-            if not head in d:
-                d[head] = {}
-            update_in(d[head], path[1:], f)
+        d.setdefault(head, {})
+        updated = copy.deepcopy(d)
+        updated[head] = update_in(d[head], path[1:], f)
+        return updated
+    return f(d)
 
 
 def dissoc(d, removing):
@@ -1064,7 +1065,12 @@ def inverse_topology(outer, update, topology):
                 for child, child_update in update.items():
                     inner = normalize_path(outer + path + (child,))
                     if isinstance(child_update, dict):
-                        update_in(inverse, inner, lambda current: deep_merge(current, child_update))
+                        inverse = update_in(
+                            inverse,
+                            inner,
+                            lambda current: deep_merge(
+                                current, child_update),
+                        )
                     else:
                         assoc_path(inverse, inner, child_update)
 
@@ -1088,11 +1094,20 @@ def inverse_topology(outer, update, topology):
             else:
                 inner = normalize_path(outer + path)
                 if isinstance(value, dict):
-                    update_in(inverse, inner, lambda current: deep_merge(current, value))
+                    inverse = update_in(
+                        inverse,
+                        inner,
+                        lambda current: deep_merge(current, value)
+                    )
                 else:
                     assoc_path(inverse, inner, value)
 
     return inverse
+
+
+def invert_topology(update, args):
+    path, topology = args
+    return inverse_topology(path[:-1], update, topology)
 
 
 def generate_state(processes, topology, initial_state):
@@ -1122,23 +1137,30 @@ def timestamp(dt=None):
         dt.year, dt.month, dt.day,
         dt.hour, dt.minute, dt.second)
 
-def invoke_process(process, path, topology, interval, states):
-    update = process.next_update(interval, states)
-    absolute = inverse_topology(path[:-1], update, topology)
-    return absolute
+
+def invoke_process(process, interval, states):
+    return process.next_update(interval, states)
+
+
+class Defer(object):
+    def __init__(self, defer, f, args):
+        self.defer = defer
+        self.f = f
+        self.args = args
+
+    def get(self):
+        return self.f(
+            self.defer.get(),
+            self.args)
 
 
 class InvokeProcess(object):
-    def __init__(self, process, path, topology, interval, states):
+    def __init__(self, process, interval, states):
         self.process = process
-        self.path = path
-        self.topology = topology
         self.interval = interval
         self.states = states
         self.update = invoke_process(
             self.process,
-            self.path,
-            self.topology,
             self.interval,
             self.states)
 
@@ -1150,8 +1172,8 @@ class MultiInvoke(object):
     def __init__(self, pool):
         self.pool = pool
 
-    def invoke(self, process, path, topology, interval, states):
-        args = (process, path, topology, interval, states)
+    def invoke(self, process, interval, states):
+        args = (process, interval, states)
         result = self.pool.apply_async(invoke_process, args)
         return result
 
@@ -1198,6 +1220,7 @@ class Experiment(object):
         self.config = config
         self.experiment_id = config.get(
             'experiment_id', timestamp(datetime.datetime.utcnow()))
+        self.experiment_name = config.get('experiment_name', self.experiment_id)
         self.description = config.get('description', '')
         self.processes = config['processes']
         self.topology = config['topology']
@@ -1205,6 +1228,7 @@ class Experiment(object):
         self.emit_step = config.get('emit_step')
 
         self.invoke = config.get('invoke', InvokeProcess)
+        self.parallel = {}
 
         self.state = generate_state(
             self.processes,
@@ -1244,6 +1268,7 @@ class Experiment(object):
         data = {
             'time_created': timestamp(),
             'experiment_id': self.experiment_id,
+            'name': self.experiment_name,
             'description': self.description,
             'processes': serialize_dictionary(self.processes),
             'topology': self.topology,
@@ -1254,31 +1279,36 @@ class Experiment(object):
             'data': data}
         self.emitter.emit(emit_config)
 
+    def invoke_process(self, process, path, interval, states):
+        if process.parallel:
+            # add parallel process if it doesn't exist
+            if not path in self.parallel:
+                self.parallel[path] = ParallelProcess(process)
+            # trigger the computation of the parallel process
+            self.parallel[path].update(interval, states)
+
+            return self.parallel[path]
+        else:
+            # if not parallel, perform a normal invocation
+            return self.invoke(process, interval, states)
+
     def process_update(self, path, state, interval):
         process = state.value
         process_topology = get_in(self.topology, path)
 
         # translate the values from the tree structure into the form
         # that this process expects, based on its declared topology
-        ports = state.outer.schema_topology(process.schema, process_topology)
+        states = state.outer.schema_topology(process.schema, process_topology)
 
-        update = self.invoke(
+        update = self.invoke_process(
             process,
             path,
-            process_topology,
             interval,
-            ports)
+            states)
 
-        return update, process_topology, state
+        absolute = Defer(update, invert_topology, (path, process_topology))
 
-        # # perform the process update with the current states
-        # update = process.next_update(interval, ports)
-
-        # # translate the values from the process update back into the
-        # # paths they have in the state tree
-        # absolute = inverse_topology(path[:-1], update, process_topology)
-
-        # return absolute
+        return absolute, process_topology, state
 
     def apply_update(self, update, process_topology, state):
         topology_updates = self.state.apply_update(
@@ -1309,11 +1339,13 @@ class Experiment(object):
         for update_tuple in update_tuples:
             update, process_topology, state = update_tuple
             self.apply_update(update.get(), process_topology, state)
+
         if derivers is None:
             derivers = {
                 path: state
                 for path, state in self.state.depth()
                 if state.value is not None and isinstance(state.value, Process) and state.value.is_deriver()}
+
         self.run_derivers(derivers)
 
     def update(self, interval):
@@ -1346,6 +1378,11 @@ class Experiment(object):
                         derivers[path] = state
                     else:
                         processes[path] = state
+
+            # find any parallel processes that were removed and terminate them
+            for terminated in self.parallel.keys() - processes.keys():
+                self.parallel[terminated].end()
+                del self.parallel[terminated]
 
             # setup a way to track how far each process has simulated in time
             front = {
@@ -1411,6 +1448,11 @@ class Experiment(object):
         for process_name, advance in front.items():
             assert advance['time'] == time == interval
             assert len(advance['update']) == 0
+
+
+    def end(self):
+        for parallel in self.parallel.values():
+            parallel.end()
 
 
 # Tests
@@ -1498,7 +1540,7 @@ def test_in():
     assoc_path(blank, path, 5)
     print(blank)
     print(get_in(blank, path))
-    update_in(blank, path, lambda x: x + 6)
+    blank = update_in(blank, path, lambda x: x + 6)
     print(blank)
 
 
@@ -1590,12 +1632,12 @@ class Electron(Process):
         return update
 
 
-def make_proton():
+def make_proton(parallel=False):
     processes = {
-        'proton': Proton(),
+        'proton': Proton({'_parallel': parallel}),
         'electrons': {
             'a': {
-                'electron': Electron()},
+                'electron': Electron({'_parallel': parallel})},
             'b': {
                 'electron': Electron()}}}
 
@@ -1644,6 +1686,36 @@ def make_proton():
         'processes': processes,
         'topology': topology,
         'initial_state': initial_state}
+
+
+class Sine(Process):
+    name = 'sine'
+    defaults = {
+        'initial_phase': 0.0}
+
+    def __init__(self, parameters=None):
+        super(Sine, self).__init__(parameters)
+
+    def ports_schema(self):
+        return {
+            'frequency': {
+                '_default': 440.0},
+            'amplitude': {
+                '_default': 1.0},
+            'phase': {
+                '_default': self.parameters['initial_phase']},
+            'signal': {
+                '_default': 0.0,
+                '_updater': 'set'}}
+
+    def next_update(self, timestep, states):
+        phase_shift = timestep * states['frequency'] % 1.0
+        signal = states['amplitude'] * math.sin(
+            2 * math.pi * (states['phase'] + phase_shift))
+
+        return {
+            'phase': phase_shift,
+            'signal': signal}
 
 
 def test_topology_ports():
@@ -1785,9 +1857,152 @@ def test_multi():
         log.debug(pf(experiment.state.divide_value()))
 
 
+def test_parallel():
+    proton = make_proton(parallel=True)
+    experiment = Experiment(proton)
+
+    log.debug(pf(experiment.state.get_config(True)))
+
+    experiment.update(10.0)
+
+    log.debug(pf(experiment.state.get_config(True)))
+    log.debug(pf(experiment.state.divide_value()))
+
+    experiment.end()
+
+
+class TestUpdateIn:
+    d = {
+        'foo': {
+            1: {
+                'a': 'b',
+            },
+        },
+        'bar': {
+            'c': 'd',
+        },
+    }
+
+    def test_simple(self):
+        updated = copy.deepcopy(self.d)
+        updated = update_in(
+            updated, ('foo', 1, 'a'), lambda current: 'updated')
+        expected = {
+            'foo': {
+                1: {
+                    'a': 'updated',
+                },
+            },
+            'bar': {
+                'c': 'd',
+            },
+        }
+        assert updated == expected
+
+    def test_add_leaf(self):
+        updated = copy.deepcopy(self.d)
+        updated = update_in(
+            updated, ('foo', 1, 'new'), lambda current: 'updated')
+        expected = {
+            'foo': {
+                1: {
+                    'a': 'b',
+                    'new': 'updated',
+                },
+            },
+            'bar': {
+                'c': 'd',
+            },
+        }
+        assert updated == expected
+
+    def test_add_dict(self):
+        updated = copy.deepcopy(self.d)
+        updated = update_in(
+            updated, ('foo', 2), lambda current: {'a': 'updated'})
+        expected = {
+            'foo': {
+                1: {
+                    'a': 'b',
+                },
+                2: {
+                    'a': 'updated',
+                },
+            },
+            'bar': {
+                'c': 'd',
+            },
+        }
+        assert updated == expected
+
+    def test_complex_merge(self):
+        updated = copy.deepcopy(self.d)
+        updated = update_in(
+            updated, ('foo',),
+            lambda current: deep_merge(
+                current,
+                {'foo': {'a': 'updated'}, 'b': 2}),
+            )
+        expected = {
+            'foo': {
+                'foo': {
+                    'a': 'updated',
+                },
+                'b': 2,
+                1: {
+                    'a': 'b',
+                },
+            },
+            'bar': {
+                'c': 'd',
+            },
+        }
+        assert updated == expected
+
+    def test_add_to_root(self):
+        updated = copy.deepcopy(self.d)
+        updated = update_in(
+            updated,
+            tuple(),
+            lambda current: deep_merge(current, ({'a': 'updated'})),
+        )
+        expected = {
+            'foo': {
+                1: {
+                    'a': 'b',
+                },
+            },
+            'bar': {
+                'c': 'd',
+            },
+            'a': 'updated'
+        }
+        assert updated == expected
+
+    def test_set_root(self):
+        updated = copy.deepcopy(self.d)
+        updated = update_in(
+            updated, tuple(), lambda current: {'a': 'updated'})
+        expected = {
+            'a': 'updated',
+        }
+        assert updated == expected
+
+
+def test_sine():
+    sine = Sine()
+    print(sine.next_update(0.25 / 440.0, {
+        'frequency': 440.0,
+        'amplitude': 0.1,
+        'phase': 1.5}))
+
+
 if __name__ == '__main__':
     # test_recursive_store()
     # test_in()
     # test_timescales()
     # test_topology_ports()
-    test_multi()
+    # test_multi()
+    # test_sine()
+
+    test_parallel()

@@ -47,6 +47,7 @@ class Lattice(Generator):
             'diffusion': 1e-2,
         },
         'colony_shape_deriver': None,
+        '_schema': {},
     }
 
     def __init__(self, config=None):

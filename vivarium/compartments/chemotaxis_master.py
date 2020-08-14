@@ -25,8 +25,8 @@ from vivarium.processes.transcription import Transcription
 from vivarium.processes.translation import Translation
 from vivarium.processes.degradation import RnaDegradation
 from vivarium.processes.complexation import Complexation
-from vivarium.processes.Endres2006_chemoreceptor import ReceptorCluster
-from vivarium.processes.Mears2014_flagella_activity import FlagellaActivity
+from vivarium.processes.chemoreceptor_cluster import ReceptorCluster
+from vivarium.processes.flagella_activity import FlagellaActivity
 from vivarium.processes.membrane_potential import MembranePotential
 from vivarium.processes.division_volume import DivisionVolume
 

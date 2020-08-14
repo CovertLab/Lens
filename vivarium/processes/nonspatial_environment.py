@@ -19,16 +19,11 @@ class NonSpatialEnvironment(Deriver):
         'volume': 1e-12 * units.L,
     }
 
-    def __init__(self, initial_parameters=None):
-        if initial_parameters is None:
-            initial_parameters = {}
-
-        volume = initial_parameters.get('volume', self.defaults['volume'])
+    def __init__(self, parameters=None):
+        super(NonSpatialEnvironment, self).__init__(parameters)
+        volume = parameters.get('volume', self.defaults['volume'])
         self.mmol_to_counts = (AVOGADRO.to('1/mmol') * volume).to('L/mmol')
 
-        parameters = copy.deepcopy(NonSpatialEnvironment.defaults)
-        parameters.update(initial_parameters)
-        super(NonSpatialEnvironment, self).__init__(parameters)
 
     def ports_schema(self):
         bin_x = 1 * units.um

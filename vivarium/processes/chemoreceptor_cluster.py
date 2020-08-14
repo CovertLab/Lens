@@ -15,7 +15,7 @@ from vivarium.core.process import Process
 from vivarium.library.units import units
 
 
-NAME = 'Endres2006_chemoreceptor'
+NAME = 'chemoreceptor_cluster'
 
 STEADY_STATE_DELTA = 1e-6
 
@@ -27,24 +27,6 @@ INITIAL_INTERNAL_STATE = {
     'CheB_P': 0.0,  # phosphorylated CheB
 }
 
-# Parameters from Endres and Wingreen 2006. See paper for serine binding, NiCl2 binding rates.
-DEFAULT_PARAMETERS = {
-    'n_Tar': 6,  # number of Tar receptors in a cluster
-    'n_Tsr': 12,  # number of Tsr receptors in a cluster
-    # dissociation constants (mM)
-    # K_Tar_on = 12e-3  # Tar to Asp (Emonet05)
-    # K_Tar_off = 1.7e-3  # Tar to Asp (Emonet05)
-    # (Endres & Wingreen, 2006) has dissociation constants for serine binding, NiCl2 binding
-    'K_Tar_off': 0.02,  # (mM) MeAsp binding by Tar (Endres06)
-    'K_Tar_on': 0.5,  # (mM) MeAsp binding by Tar (Endres06)
-    'K_Tsr_off': 100.0,  # (mM) MeAsp binding by Tsr (Endres06)
-    'K_Tsr_on': 10e6,  # (mM) MeAsp binding by Tsr (Endres06)
-    # k_CheR = 0.0182  # effective catalytic rate of CheR
-    # k_CheB = 0.0364  # effective catalytic rate of CheB
-    'k_meth': 0.0625,  # Catalytic rate of methylation
-    'k_demeth': 0.0714,  # Catalytic rate of demethylation
-    'adapt_rate': 2,  # adaptation rate relative to wild-type. cell-to-cell variation cause by variability in [CheR, CheB]
-}
 
 def run_step(receptor, state, timestep):
     update = receptor.next_update(timestep, state)
@@ -66,35 +48,81 @@ def run_to_steady_state(receptor, state, timestep):
 
 
 class ReceptorCluster(Process):
+    '''Models the activity of a chemoreceptor cluster
+
+       This :term:`process class` models the activity of a chemoreceptor cluster
+       composed of Tsr and Tar amino acid chemoreceptors. The model is a
+       Monod-Wyman-Changeux (MWC) model adapted from "Endres, R. G., & Wingreen, N. S.
+       (2006). Precise adaptation in bacterial chemotaxis through assistance neighborhoods”.
+       Each receptor homodimer is modeled as a two-state system (on or off) with energy
+       values based on ligand concentration and methylation levels. This results in four
+       energy levels: 1) on without ligand, on with ligand, off without ligand, off with
+       ligand. Sensory adaptation comes from the methylation of receptors, which alters the
+       free-energy offset and transition rate to favor the on state; attractant ligand
+       binding favors the off state.
+
+       :term:`Ports`:
+
+       * **internal**: Expects a :term:`store` with 'chemoreceptor_activity',
+         'CheR', 'CheB', 'CheB_P', and 'n_methyl'.
+       * **external**: Expects a :term:`store` with the ligand.
+
+       Arguments:
+           initial_parameters: A dictionary of configuration options.
+               The following configuration options may be provided:
+
+               * **ligand_id** (:py:class:`str`): The name of the external
+                 ligand sensed by the cluster.
+               * **initial_ligand** (:py:class:`float`): The initial concentration
+                 of the ligand. The initial state of the cluster is set to
+                 steady state relative to this concetnration.
+               * **n_Tar** (:py:class:`int`): number of Tar receptors in a cluster
+               * **n_Tsr** (:py:class:`int`): number of Tsr receptors in a cluster
+               * **K_Tar_off** (:py:class:`float`): (mM) MeAsp binding by Tar (Endres06)
+               * **K_Tar_on** (:py:class:`float`): (mM) MeAsp binding by Tar (Endres06)
+               * **K_Tsr_off** (:py:class:`float`): (mM) MeAsp binding by Tsr (Endres06)
+               * **K_Tsr_on** (:py:class:`float`): (mM) MeAsp binding by Tsr (Endres06)
+               * **k_meth** (:py:class:`float`): Catalytic rate of methylation
+               * **k_demeth** (:py:class:`float`): Catalytic rate of demethylation
+               * **adapt_rate** (:py:class:`float`): adaptation rate relative to wild-type.
+                 cell-to-cell variation cause by variability in CheR and CheB
+
+       Notes:
+           * dissociation constants (mM)
+           * K_Tar_on = 12e-3  # Tar to Asp (Emonet05)
+           * K_Tar_off = 1.7e-3  # Tar to Asp (Emonet05)
+           * (Endres & Wingreen, 2006) has dissociation constants for serine binding, NiCl2 binding
+       '''
 
     name = NAME
     defaults = {
         'ligand_id': 'MeAsp',
         'initial_ligand': 5.0,
         'initial_internal_state': INITIAL_INTERNAL_STATE,
-        'parameters': DEFAULT_PARAMETERS
+        # Parameters from Endres and Wingreen 2006.
+        'n_Tar': 6,
+        'n_Tsr': 12,
+        'K_Tar_off': 0.02,
+        'K_Tar_on': 0.5,
+        'K_Tsr_off': 100.0,
+        'K_Tsr_on': 10e6,
+        # k_CheR = 0.0182  # effective catalytic rate of CheR
+        # k_CheB = 0.0364  # effective catalytic rate of CheB
+        'k_meth': 0.0625,
+        'k_demeth': 0.0714,
+        'adapt_rate': 1.2,
     }
 
-    def __init__(self, initial_parameters=None):
-        if not initial_parameters:
-            initial_parameters = {}
-
-        self.ligand_id = self.or_default(
-            initial_parameters, 'ligand_id')
-        self.initial_ligand = self.or_default(
-            initial_parameters, 'initial_ligand')
-        initial_internal_state = self.or_default(
-            initial_parameters, 'initial_internal_state')
-        self.initial_state = {
-            'internal': initial_internal_state,
-            'external': {self.ligand_id: self.initial_ligand}}
-
-        parameters = self.defaults['parameters']
-        parameters.update(initial_parameters)
-
+    def __init__(self, parameters=None):
         super(ReceptorCluster, self).__init__(parameters)
 
         # initialize the state by running until steady
+        initial_internal_state = self.parameters['initial_internal_state']
+        ligand_id = self.parameters['ligand_id']
+        initial_ligand = self.parameters['initial_ligand']
+        self.initial_state = {
+            'internal': initial_internal_state,
+            'external': {ligand_id: initial_ligand}}
         run_to_steady_state(self, self.initial_state, 1.0)
 
     def ports_schema(self):
@@ -124,17 +152,6 @@ class ReceptorCluster(Process):
             Endres & Wingreen. (2006). Precise adaptation in bacterial chemotaxis through "assistance neighborhoods"
         '''
 
-        # states
-        n_methyl = states['internal']['n_methyl']
-        P_on = states['internal']['chemoreceptor_activity']
-        CheR = states['internal']['CheR'] * (units.mmol / units.L)
-        CheB = states['internal']['CheB'] * (units.mmol / units.L)
-        ligand_conc = states['external'][self.ligand_id]   # mmol/L
-
-        # convert to umol / L
-        CheR = CheR.to('umol/L').magnitude
-        CheB = CheB.to('umol/L').magnitude
-
         # parameters
         n_Tar = self.parameters['n_Tar']
         n_Tsr = self.parameters['n_Tsr']
@@ -145,6 +162,17 @@ class ReceptorCluster(Process):
         adapt_rate = self.parameters['adapt_rate']
         k_meth = self.parameters['k_meth']
         k_demeth = self.parameters['k_demeth']
+
+        # states
+        n_methyl = states['internal']['n_methyl']
+        P_on = states['internal']['chemoreceptor_activity']
+        CheR = states['internal']['CheR'] * (units.mmol / units.L)
+        CheB = states['internal']['CheB'] * (units.mmol / units.L)
+        ligand_conc = states['external'][self.parameters['ligand_id']]   # mmol/L
+
+        # convert to umol / L
+        CheR = CheR.to('umol/L').magnitude
+        CheB = CheB.to('umol/L').magnitude
 
         if n_methyl < 0:
             n_methyl = 0
@@ -269,7 +297,8 @@ def plot_output(output, out_dir='out', filename='response'):
     # plot results
     cols = 1
     rows = 3
-    plt.figure(figsize=(cols * 4, rows * 1.7))
+    plt.figure(figsize=(3.0 * cols, 2.5 * rows))
+    plt.rc('font', size=12)
 
     ax1 = plt.subplot(rows, cols, 1)
     ax2 = plt.subplot(rows, cols, 2)
@@ -299,7 +328,7 @@ def plot_output(output, out_dir='out', filename='response'):
     ax3.set_ylabel("average \n methylation", fontsize=10)
 
     fig_path = os.path.join(out_dir, filename)
-    plt.subplots_adjust(wspace=0.7, hspace=0.2)
+    plt.subplots_adjust(wspace=0.7, hspace=0.4)
     plt.savefig(fig_path + '.png', bbox_inches='tight')
 
 

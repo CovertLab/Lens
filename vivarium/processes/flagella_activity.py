@@ -16,85 +16,76 @@ from vivarium.core.composition import (
     simulate_process_in_experiment,
     PROCESS_OUT_DIR
 )
-from vivarium.plots.Mears2014_flagella_activity import plot_activity
+from vivarium.plots.flagella_activity import plot_activity
 
-NAME = 'Mears2014_flagella_activity'
-
-DEFAULT_PARAMETERS = {
-    # parameters from Mears, Koirala, Rao, Golding, Chemla (2014)
-    'ccw_to_cw': 0.26,  # (1/s) Motor switching rate from CCW->CW
-    'cw_to_ccw': 1.7,  # (1/s) Motor switching rate from CW->CCW
-    'CB': 0.13,  # average CW bias of wild-type motors
-    'lambda': 0.68,  # (1/s) transition rate from semi-coiled to curly-w state
-
-    # CheY-P flucutations
-    'YP_ss': 2.59,  # (uM) steady state concentration of CheY-P
-    'sigma2_Y': 1.0,  # (uM^2) variance in CheY-P
-    'tau': 0.2,  # (s) characteristic time-scale fluctuations in [CheY-P]
-
-    # CW bias
-    'K_d': 3.1,  # (uM) midpoint of CW bias vs CheY-P response curve
-    'H': 10.3,  # Hill coefficient for CW bias vs CheY-P response curve
-
-    # rotational state of individual flagella
-    # parameters from Sneddon, Pontius, and Emonet (2012)
-    'omega': 1.3,  # (1/s) characteristic motor switch time
-    'g_0': 40,  # (k_B/T) free energy barrier for CCW-->CW
-    'g_1': 40,  # (k_B/T) free energy barrier for CW-->CCW
-    'K_D': 3.06,  # binding constant of Chey-P to base of the motor
-}
+NAME = 'flagella_activity'
 
 
 
 class FlagellaActivity(Process):
-    '''
-    Model of multi-flagellar motor activity and CheY-P fluctuations from:
-        Mears, P. J., Koirala, S., Rao, C. V., Golding, I., & Chemla, Y. R. (2014).
+    ''' Model multi-flagellar motor activity and CheY-P fluctuations.
+
+        :term:`Ports`:
+
+        * **internal**: Expects a :term:`store` with 'chemoreceptor_activity',
+            'motile_state', 'CheY', 'CheY_P', 'cw_bias'
+        * **internal_counts**: Expects a :term:`store` with an int for 'flagella'
+        * **flagella**: Expects a :term:`store` with a subschema for flagellar
+          sub-compartments. Each one is assigned a uuid.
+        * **membrane**: Expects a :term:`store` with 'PMF', 'protons_flux_accumulated'
+        * **boundary**: Expects a :term:`store` with 'thrust', 'torque'
+
+    References:
+        * Mears, P. J., Koirala, S., Rao, C. V., Golding, I., & Chemla, Y. R. (2014).
         Escherichia coli swimming is robust against variations in flagellar number.
 
     TODO:
-        - Complete PMF control over motor thrust.
         - Mears et al. has flagella with 3 conformational states for flagella (normal (CCW), semi (CW), curly (CW)).
-        - Flagella states should be nested dictionaries with multiple states (rotational state, # of motors engaged).
-        - If flagella counts are modified outside of this process, there needs to be a function that detects it and adjusts the flagella states.
-        - Flagella will need to be separated upon division, rather than having each daughter inherit all the flagella.
+        - Flagella subcompartments should be nested dictionaries with multiple states (rotational state, # of motors engaged).
     '''
 
     name = NAME
+    initial_pmf = 170 # PMF ~170mV at pH 7, ~140mV at pH 7.7 (Berg H, E. coli in motion, 2004, pg 113)
     defaults = {
         'n_flagella': 5,
-        'parameters': DEFAULT_PARAMETERS,
-        'initial_internal_state': {
+        'initial_state': {
             'CheY': 2.59,
             'CheY_P': 2.59,  # (uM) mean concentration of CheY-P
             'cw_bias': 0.5,
             'motile_state': 0,  # 1 for tumble, -1 for run, 0 for none
+            'PMF': initial_pmf,
         },
+        # parameters from Mears, Koirala, Rao, Golding, Chemla (2014)
+        'ccw_to_cw': 0.26,  # (1/s) Motor switching rate from CCW->CW
+        'cw_to_ccw': 1.7,  # (1/s) Motor switching rate from CW->CCW
+        'CB': 0.13,  # average CW bias of wild-type motors
+        'lambda': 0.68,  # (1/s) transition rate from semi-coiled to curly-w state
+
+        # CheY-P flucutations
+        'YP_ss': 2.59,  # (uM) steady state concentration of CheY-P
+        'sigma2_Y': 1.0,  # (uM^2) variance in CheY-P
+        'tau': 0.2,  # (s) characteristic time-scale fluctuations in [CheY-P]
+
+        # CW bias
+        'K_d': 3.1,  # (uM) midpoint of CW bias vs CheY-P response curve
+        'H': 10.3,  # Hill coefficient for CW bias vs CheY-P response curve
+
+        # rotational state of individual flagella
+        # parameters from Sneddon, Pontius, and Emonet (2012)
+        'omega': 1.3,  # (1/s) characteristic motor switch time
+        'g_0': 40,  # (k_B/T) free energy barrier for CCW-->CW
+        'g_1': 40,  # (k_B/T) free energy barrier for CW-->CCW
+        'K_D': 3.06,  # binding constant of Chey-P to base of the motor
 
         # motile force parameters
-        'PMF': 170,  # PMF ~170mV at pH 7, ~140mV at pH 7.7 (Berg H, E. coli in motion, 2004, pg 113)
         'flagellum_thrust': 25,  # (pN) (Berg H, E. coli in motion, 2004, pg 113)
         'tumble_jitter': 120.0,
+        'tumble_scaling': 1 / initial_pmf,
+        'run_scaling': 1 / initial_pmf,
         'time_step': 0.01,  # 0.001
     }
 
-    def __init__(self, initial_parameters=None):
-        if not initial_parameters:
-            initial_parameters = {}
-
-        self.n_flagella = self.or_default(
-            initial_parameters, 'n_flagella')
-        self.flagellum_thrust = self.or_default(
-            initial_parameters, 'flagellum_thrust')
-        self.tumble_jitter = self.or_default(
-            initial_parameters, 'tumble_jitter')
-        self.tumble_scaling = 0.5/self.defaults['PMF']
-        self.run_scaling = 1 / self.defaults['PMF']
-
-        parameters = self.defaults['parameters']
-        parameters.update({'time_step': self.defaults['time_step']})
-        parameters.update(initial_parameters)
-
+    def __init__(self, parameters=None):
         super(FlagellaActivity, self).__init__(parameters)
 
     def ports_schema(self):
@@ -115,19 +106,20 @@ class FlagellaActivity(Process):
 
         # membrane
         for state in ['PMF', 'protons_flux_accumulated']:
-            schema['membrane'][state] = {'_default': self.defaults.get(state, 0.0)}
+            schema['membrane'][state] = {'_default': self.parameters['initial_state'].get(state, 0.0)}
 
         # internal
         schema['internal']['chemoreceptor_activity'] = {}
         for state in ['motile_state', 'CheY', 'CheY_P', 'cw_bias']:
             schema['internal'][state] = {
-                '_default': self.defaults['initial_internal_state'].get(state, 0.0),
+                '_default': self.parameters['initial_state'].get(state, 0),
                 '_emit': True,
                 '_updater': 'set'}
 
         # internal_counts
         schema['internal_counts']['flagella'] = {
-            '_default': self.n_flagella,
+            '_value': self.parameters['n_flagella'],
+            '_default': self.parameters['n_flagella'],
             '_emit': True}
 
         # flagella
@@ -259,12 +251,12 @@ class FlagellaActivity(Process):
         return new_motor_state
 
     def tumble(self, n_flagella, PMF):
-        thrust = self.tumble_scaling * PMF * self.flagellum_thrust * n_flagella
-        torque = random.normalvariate(0, self.tumble_jitter)
+        thrust = self.parameters['tumble_scaling'] * PMF * self.parameters['flagellum_thrust'] * n_flagella
+        torque = random.normalvariate(0, self.parameters['tumble_jitter'])
         return [thrust, torque]
 
     def run(self, n_flagella, PMF):
-        thrust = self.run_scaling * PMF * self.flagellum_thrust * n_flagella
+        thrust = self.parameters['run_scaling'] * PMF * self.parameters['flagellum_thrust'] * n_flagella
         torque = 0.0
         return [thrust, torque]
 
@@ -319,9 +311,9 @@ def run_variable_flagella(out_dir):
     init_params = {'n_flagella': 5}
     timeline = [
         (0, {}),
-        (60, {('internal_counts', 'flagella'): 6}),
-        (200, {('internal_counts', 'flagella'): 7}),
-        (240, {})]
+        (20, {('internal_counts', 'flagella'): 6}),
+        (40, {('internal_counts', 'flagella'): 7}),
+        (60, {})]
     output3 = test_activity(init_params, timeline)
     plot_activity(output3, out_dir, 'variable_flagella')
 

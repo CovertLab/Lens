@@ -112,7 +112,7 @@ class Metabolism(Process):
         'default_upper_bound': 0.0,
         'regulation': {},
         'initial_state': {},
-        'exchange_threshold': 1e-6, # concentrations lower than exchange_threshold are considered depleted
+        'exchange_threshold': 1e-4,  # concentrations lower than exchange_threshold are considered depleted
         'initial_mass': 1339,  # fg
         'global_deriver_key': 'global_deriver',
         'mass_deriver_key': 'mass_deriver',
@@ -210,6 +210,7 @@ class Metabolism(Process):
         for state in list(self.objective_composition.keys()):
             schema['internal'][state] = {
                 '_value': self.initial_state['internal'].get(state, 0),
+                '_divider': 'split',
                 '_default': 0.0,
                 '_emit': True,
                 '_properties': {
@@ -282,7 +283,6 @@ class Metabolism(Process):
                 },
                 'config': {
                     'from_path': ('..', '..'),
-                    'initial_mass': self.initial_mass,
                 },
             },
             self.global_deriver_key: {
@@ -592,8 +592,7 @@ if __name__ == '__main__':
             'environment': {
                 'volume': 1e-5 * units.L,
             },
-            # 'timestep': 1,
-            'total_time': 20,  # 2520 sec (42 min) is the expected doubling time in minimal media
+            'total_time': 2520,  # 2520 sec (42 min) is the expected doubling time in minimal media
         }
 
         # run simulation

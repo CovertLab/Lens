@@ -14,6 +14,7 @@ import copy
 import sys
 import argparse
 
+import numpy as np
 from arpeggio import (
     RegExMatch,
     ParserPython,
@@ -21,7 +22,10 @@ from arpeggio import (
 )
 
 from vivarium.library.dict_utils import deep_merge
-from vivarium.core.emitter import time_indexed_timeseries_from_data
+from vivarium.core.emitter import (
+    time_indexed_timeseries_from_data,
+    timeseries_from_data
+)
 from vivarium.core.composition import (
     agent_environment_experiment,
     make_agents,
@@ -42,7 +46,7 @@ from vivarium.compartments.chemotaxis_flagella import (
 )
 
 # processes
-from vivarium.processes.Vladimirov2008_motor import MotorActivity
+from vivarium.processes.coarse_motor import MotorActivity
 from vivarium.processes.multibody_physics import agent_body_config
 from vivarium.processes.static_field import make_field
 
@@ -52,33 +56,37 @@ from vivarium.plots.multibody_physics import (
     plot_agent_trajectory,
     plot_motility,
 )
-
+from vivarium.plots.coarse_motor import plot_variable_receptor
 
 # make an agent from a lone MotorActivity process
+# MotorActivityAgent = MotorActivity
 MotorActivityAgent = process_in_compartment(
     MotorActivity,
     topology={
         'external': ('boundary',),
-        'internal': ('cell',)
-    })
+        'internal': ('cell',)})
 
-# defaults
+# environment defaults
+DEFAULT_ENVIRONMENT_TYPE = StaticLattice
+DEFAULT_LIGAND_ID = 'glc__D_e'  # BiGG id for external glucose
 DEFAULT_BOUNDS = [1000, 3000]
 DEFAULT_AGENT_LOCATION = [0.5, 0.1]
-DEFAULT_LIGAND_ID = 'MeAsp'
-DEFAULT_INITIAL_LIGAND = 25.0
-DEFAULT_ENVIRONMENT_TYPE = StaticLattice
+
+# exponential field parameters
+FIELD_SCALE = 4.0
+EXPONENTIAL_BASE = 1.3e2
+FIELD_CENTER = [0.5, 0.0]
+
+# get initial ligand concentration based on location
+LOC_DX = (DEFAULT_AGENT_LOCATION[0] - FIELD_CENTER[0]) * DEFAULT_BOUNDS[0]
+LOC_DY = (DEFAULT_AGENT_LOCATION[1] - FIELD_CENTER[1]) * DEFAULT_BOUNDS[1]
+DIST = np.sqrt(LOC_DX ** 2 + LOC_DY ** 2)
+INITIAL_LIGAND = FIELD_SCALE * EXPONENTIAL_BASE ** (DIST / 1000)
+
 
 def get_exponential_env_config():
-    # field parameters
-    field_scale = 1.0
-    exponential_base = 2e2
-    field_center = [0.5, 0.0]
-
     # multibody process config
     multibody_config = {
-        'animate': False,
-        'jitter_force': 5e-4,
         'bounds': DEFAULT_BOUNDS}
 
     # static field config
@@ -88,9 +96,9 @@ def get_exponential_env_config():
             'type': 'exponential',
             'molecules': {
                 DEFAULT_LIGAND_ID: {
-                    'center': field_center,
-                    'scale': field_scale,
-                    'base': exponential_base}}},
+                    'center': FIELD_CENTER,
+                    'scale': FIELD_SCALE,
+                    'base': EXPONENTIAL_BASE}}},
         'bounds': DEFAULT_BOUNDS}
 
     return {
@@ -106,7 +114,6 @@ def get_linear_env_config():
     # multibody process config
     multibody_config = {
         'animate': False,
-        'jitter_force': 5e-4,
         'bounds': DEFAULT_BOUNDS}
 
     # static field config
@@ -130,32 +137,55 @@ def get_linear_env_config():
 
 DEFAULT_ENVIRONMENT_CONFIG = {
     'type': DEFAULT_ENVIRONMENT_TYPE,
-    'config': get_exponential_env_config()
-}
+    'config': get_exponential_env_config()}
 
 DEFAULT_AGENT_CONFIG = {
     'ligand_id': DEFAULT_LIGAND_ID,
-    'initial_ligand': DEFAULT_INITIAL_LIGAND,
+    'initial_ligand': INITIAL_LIGAND,
     'external_path': ('global',),
     'agents_path': ('..', '..', 'agents'),
-    'daughter_path': tuple(),
-}
+    'daughter_path': tuple()}
+
+def set_environment_config(config={}):
+    # override default environment config
+    return deep_merge(dict(DEFAULT_ENVIRONMENT_CONFIG), config)
 
 def set_agent_config(config={}):
+    # override default agent config
     return deep_merge(dict(DEFAULT_AGENT_CONFIG), config)
 
+
+# configs with faster timescales, to support close agent/environment coupling
+FAST_TIMESCALE = 0.001
+tumble_jitter = 4000
+# fast timescale minimal agents
+FAST_MOTOR_CONFIG = set_agent_config({
+        'tumble_jitter': tumble_jitter,
+        'time_step': FAST_TIMESCALE})
+FAST_MINIMAL_CHEMOTAXIS_CONFIG = set_agent_config({
+    'receptor': {
+        'time_step': FAST_TIMESCALE},
+    'motor': {
+        'tumble_jitter': tumble_jitter,
+        'time_step': FAST_TIMESCALE}})
+
+# fast timescale environment
+FAST_TIMESCALE_ENVIRONMENT_CONFIG = set_environment_config({
+    'config': {
+        'multibody': {'time_step': FAST_TIMESCALE},
+        'field': {'time_step': FAST_TIMESCALE} }})
 
 # agent types
 agents_library = {
     'motor': {
         'name': 'motor',
         'type': MotorActivityAgent,
-        'config': DEFAULT_AGENT_CONFIG
+        'config': FAST_MOTOR_CONFIG,
     },
     'minimal': {
         'name': 'minimal',
         'type': ChemotaxisMinimal,
-        'config': DEFAULT_AGENT_CONFIG
+        'config': FAST_MINIMAL_CHEMOTAXIS_CONFIG,
     },
     'variable': {
         'name': 'variable',
@@ -173,14 +203,6 @@ agents_library = {
         'config': DEFAULT_AGENT_CONFIG
     }
 }
-
-def make_agent_config(agent_specs):
-    agent_type = agent_specs[0].value
-    number = int(agent_specs[1].value)
-    config = agents_library[agent_type]
-    config['number'] = number
-    return config
-
 
 # preset experimental configurations
 preset_experiments = {
@@ -213,7 +235,7 @@ preset_experiments = {
         ],
         'environment_config': DEFAULT_ENVIRONMENT_CONFIG,
         'simulation_settings': {
-            'total_time': 5000,
+            'total_time': 50,
             'emit_step': 1.0,
         },
     },
@@ -248,25 +270,76 @@ preset_experiments = {
             'emit_step': 0.1,
         },
     },
+    'motor': {
+        'agents_config': [
+            {
+                'type': MotorActivityAgent,
+                'name': 'motor',
+                'number': 1,
+                'config': FAST_MOTOR_CONFIG,
+            }
+        ],
+        'environment_config': FAST_TIMESCALE_ENVIRONMENT_CONFIG,
+        'simulation_settings': {
+            'total_time': 120,
+            'emit_step': FAST_TIMESCALE,
+        },
+    },
+    'fast_minimal': {
+        'agents_config': [
+            {
+                'number': 1,
+                'name': 'motor + receptor',
+                'type': ChemotaxisMinimal,
+                'config': FAST_MINIMAL_CHEMOTAXIS_CONFIG,
+            }
+        ],
+        'environment_config': FAST_TIMESCALE_ENVIRONMENT_CONFIG,
+        'simulation_settings': {
+            'total_time': 60,
+            'emit_step': FAST_TIMESCALE,
+        },
+    },
     'mixed': {
         'agents_config': [
             {
                 'type': ChemotaxisMinimal,
-                'name': 'motor_receptor',
+                'name': 'motor + receptor',
                 'number': 1,
-                'config': DEFAULT_AGENT_CONFIG
+                'config': FAST_MINIMAL_CHEMOTAXIS_CONFIG,
             },
             {
                 'type': MotorActivityAgent,
                 'name': 'motor',
                 'number': 1,
-                'config': DEFAULT_AGENT_CONFIG
+                'config': FAST_MOTOR_CONFIG,
             }
         ],
-        'environment_config': DEFAULT_ENVIRONMENT_CONFIG,
+        'environment_config': FAST_TIMESCALE_ENVIRONMENT_CONFIG,
         'simulation_settings': {
-            'total_time': 720,
-            'emit_step': 0.1,
+            'total_time': 300,
+            'emit_step': FAST_TIMESCALE,
+        },
+    },
+    'many_mixed': {
+        'agents_config': [
+            {
+                'type': MotorActivityAgent,
+                'name': 'motor',
+                'number': 5,
+                'config': FAST_MOTOR_CONFIG,
+            },
+            {
+                'type': ChemotaxisMinimal,
+                'name': 'motor + receptor',
+                'number': 5,
+                'config': FAST_MINIMAL_CHEMOTAXIS_CONFIG,
+            },
+        ],
+        'environment_config': FAST_TIMESCALE_ENVIRONMENT_CONFIG,
+        'simulation_settings': {
+            'total_time': 300,
+            'emit_step': FAST_TIMESCALE*10,
         },
     },
 }
@@ -343,19 +416,18 @@ def plot_chemotaxis_experiment(
     plot_agents_multigen(data, plot_settings, out_dir, 'agents')
 
     # trajectory and motility
-    agents_timeseries = time_indexed_timeseries_from_data(data)
+    indexed_timeseries = time_indexed_timeseries_from_data(data)
     field = make_field(field_config)
     trajectory_config = {
         'bounds': field_config['bounds'],
         'field': field,
         'rotate_90': True}
 
-    plot_temporal_trajectory(copy.deepcopy(agents_timeseries), trajectory_config, out_dir, filename + 'temporal')
-    plot_agent_trajectory(copy.deepcopy(agents_timeseries), trajectory_config, out_dir, filename + 'trajectory')
-    try:
-        plot_motility(agents_timeseries, out_dir, filename + 'motility_analysis')
-    except:
-        print('plot_motility failed')
+    plot_temporal_trajectory(copy.deepcopy(indexed_timeseries), trajectory_config, out_dir, filename + 'temporal')
+    plot_agent_trajectory(copy.deepcopy(indexed_timeseries), trajectory_config, out_dir, filename + 'trajectory')
+
+    embdedded_timeseries = timeseries_from_data(data)
+    plot_motility(embdedded_timeseries, out_dir, filename + 'motility_analysis')
 
 
 # parsing expression grammar for agents
@@ -364,13 +436,20 @@ def number(): return RegExMatch(r'[0-9]+')
 def specification(): return agent_type, number
 def rule(): return OneOrMore(specification)
 agent_parser = ParserPython(rule)
+
+def make_agent_config(agent_specs):
+    agent_type = agent_specs[0].value
+    number = int(agent_specs[1].value)
+    config = agents_library[agent_type]
+    config['number'] = number
+    return config
+
 def parse_agents_string(agents_string):
     all_agents = agent_parser.parse(agents_string)
     agents_config = []
     for idx, agent_specs in enumerate(all_agents):
         agents_config.append(make_agent_config(agent_specs))
     return agents_config
-
 
 def make_dir(out_dir):
     if not os.path.exists(out_dir):

@@ -14,7 +14,6 @@ setup(
     version='0.0.53',
     packages=[
         'vivarium',
-        'vivarium.actor',
         'vivarium.analysis',
         'vivarium.core',
         'vivarium.compartments',
@@ -36,8 +35,6 @@ setup(
     license='MIT',
     entry_points={
         'console_scripts': [
-            'vivarium.actor.boot=vivarium.actor.boot:run',
-            'vivarium.actor.control=vivarium.actor.control:run',
             'vivarium.analysis.analyze=vivarium.analysis.analyze:run',
             'vivarium.environment.boot=vivarium.environment.boot:run',
             'vivarium.environment.control=vivarium.environment.control:run',

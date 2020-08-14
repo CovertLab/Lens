@@ -128,7 +128,9 @@ class PymunkMultibody(object):
             self.add_body_from_center(agent_id, specs)
 
     def run(self, timestep):
-        assert self.physics_dt < timestep
+        if self.physics_dt > timestep:
+            print('timestep skipped by pymunk_multibody: {}'.format(timestep))
+            return
 
         time = 0
         while time < timestep:
@@ -147,8 +149,6 @@ class PymunkMultibody(object):
 
     def apply_motile_force(self, body):
         width, length = body.dimensions
-
-        # motile forces
         motile_location = (width / 2, 0)  # apply force at back end of body
         thrust = 0.0
         torque = 0.0
@@ -159,16 +159,11 @@ class PymunkMultibody(object):
             torque = body.torque
             motile_force = [thrust, 0.0]
 
-            # add directly to angular velocity
+            # add to angular velocity
             body.angular_velocity += torque
-
-            # # force-based torque
-            # if torque != 0.0:
-            #     motile_force = get_force_with_angle(thrust, torque)
 
         scaled_motile_force = [force * self.force_scaling for force in motile_force]
         body.apply_impulse_at_local_point(scaled_motile_force, motile_location)
-        # body.apply_force_at_local_point(scaled_motile_force, motile_location)
 
     def apply_jitter_force(self, body):
         jitter_location = random_body_position(body)
@@ -178,21 +173,20 @@ class PymunkMultibody(object):
         scaled_jitter_force = [
             force * self.force_scaling
             for force in jitter_force]
-        body.apply_force_at_local_point(
+        body.apply_impulse_at_local_point(
             scaled_jitter_force,
             jitter_location)
 
     def apply_viscous_force(self, body):
-        # dampen the velocity
-        body.velocity = body.velocity * self.damping
-        body.angular_velocity = body.angular_velocity * self.angular_damping
+        # dampen velocity
+        body.velocity = body.velocity * self.damping + (body.force / body.mass) * self.physics_dt
 
-        # body.velocity -= body.force / body.mass
-        # body.angular_velocity -= body.torque / body.moment
+        # dampen angular velocity
+        body.angular_velocity = body.angular_velocity * self.angular_damping + (body.torque / body.moment) * self.physics_dt
 
     def add_barriers(self, bounds, barriers):
         """ Create static barriers """
-        thickness = 2.0
+        thickness = 5.0
         offset = thickness
         x_bound = bounds[0]
         y_bound = bounds[1]

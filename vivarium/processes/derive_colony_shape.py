@@ -101,6 +101,7 @@ class ColonyShapeDeriver(Deriver):
     name = 'colony_shape_deriver'
     defaults = {
         'alpha': 1.0,
+        'bounds': [1, 1],
     }
 
     def ports_schema(self):
@@ -109,10 +110,13 @@ class ColonyShapeDeriver(Deriver):
                 '*': {
                     'boundary': {
                         'location': {
-                            '_default': [0.5, 0.5],
+                            '_default': [
+                                0.5 * bound for bound in
+                                self.parameters['bounds']
+                            ],
                         },
                         'mass': {
-                            '_default': 0.0 * units.fg,
+                            '_default': 1339 * units.fg,
                         },
                     },
                 },
@@ -157,9 +161,9 @@ class ColonyShapeDeriver(Deriver):
             agent['boundary']['location']
             for agent in agents.values()
         ]
-        points = [point for point in points if np.all(~np.isnan(point))]
+        points = [tuple(point) for point in points if np.all(~np.isnan(point))]
         alpha_shape = alphashape.alphashape(
-            points, self.parameters['alpha'])
+            set(points), self.parameters['alpha'])
         if isinstance(alpha_shape, Polygon):
             shapes = [alpha_shape]
         elif isinstance(alpha_shape, (Point, LineString)):

@@ -7,8 +7,10 @@ Process and Compartment Classes
 from __future__ import absolute_import, division, print_function
 
 import copy
-
 import numpy as np
+
+from multiprocessing import Pipe
+from multiprocessing import Process as Multiprocess
 
 from vivarium.library.units import Quantity
 from vivarium.core.registry import process_registry, serializer_registry
@@ -22,6 +24,8 @@ def serialize_value(value):
         return serialize_dictionary(value)
     elif isinstance(value, list):
         return serialize_list(value)
+    elif isinstance(value, tuple):
+        return serialize_list(list(value))
     elif isinstance(value, np.ndarray):
         return serializer_registry.access('numpy').serialize(value)
     elif isinstance(value, Quantity):
@@ -196,30 +200,35 @@ class Generator(object):
 
 class Process(Generator):
 
-    name = 'process'
     defaults = {}
 
     def __init__(self, parameters=None):
+        assert hasattr(self, 'name')
         if parameters is None:
              parameters = {}
         self.parameters = copy.deepcopy(self.defaults)
+        self.config = {}  # config is required for generate
         self.schema_override = {}
         if '_schema' in parameters:
             self.schema_override = parameters.pop('_schema')
+
+        self.parallel = False
+        if '_parallel' in parameters:
+            self.parallel = parameters.pop('_parallel')
+
         deep_merge(self.parameters, parameters)
 
         # register process repository
         process_registry.register(self.name, type(self))
 
     def generate_processes(self, config):
-        return {'process': self}
+        return {self.name: self}
 
     def generate_topology(self, config):
-        ports_schema = self.ports_schema()
-        topology = config.get('topology', {})
+        ports = self.ports()
         return {
-            'process': {
-                port: topology.get(port, (port,)) for port in ports_schema().keys()}}
+            self.name: {
+                port: (port,) for port in ports.keys()}}
 
     def get_schema(self, override=None):
         ports = copy.deepcopy(self.ports_schema())
@@ -300,3 +309,40 @@ class Process(Generator):
 class Deriver(Process):
     def is_deriver(self):
         return True
+
+
+def run_update(connection, process):
+    running = True
+
+    while running:
+        interval, states = connection.recv()
+
+        # stop process by sending -1 as the interval
+        if interval == -1:
+            running = False
+
+        else:
+            update = process.next_update(interval, states)
+            connection.send(update)
+
+    connection.close()
+
+
+class ParallelProcess(object):
+    def __init__(self, process):
+        self.process = process
+        self.parent, self.child = Pipe()
+        self.multiprocess = Multiprocess(
+            target=run_update,
+            args=(self.child, self.process))
+        self.multiprocess.start()
+
+    def update(self, interval, states):
+        self.parent.send((interval, states))
+
+    def get(self):
+        return self.parent.recv()
+
+    def end(self):
+        self.parent.send((-1, None))
+        self.multiprocess.join()

@@ -1,10 +1,14 @@
 from __future__ import absolute_import, division, print_function
 
 import numpy as np
+from scipy import constants
 
 from vivarium.library.dict_utils import deep_merge
-from vivarium.library.units import units, remove_units
+from vivarium.library.units import units, remove_units, Quantity
 from vivarium.core.process import Process
+
+
+AVOGADRO = constants.N_A * 1 / units.mol
 
 
 class CellEnvironmentDiffusion(Process):
@@ -30,6 +34,7 @@ class CellEnvironmentDiffusion(Process):
                 # Molecule concentration in mmol/L
                 molecule: {
                     '_default': self.parameters['default_default'],
+                    '_divider': 'set',
                 }
                 for molecule in self.parameters['molecules_to_diffuse']
             },
@@ -37,6 +42,7 @@ class CellEnvironmentDiffusion(Process):
                 # Molecule concentration in mmol/L
                 molecule: {
                     '_default': self.parameters['default_default'],
+                    '_divider': 'set',
                 }
                 for molecule in self.parameters['molecules_to_diffuse']
             },
@@ -46,7 +52,7 @@ class CellEnvironmentDiffusion(Process):
                     '_default': self.parameters['default_default'],
                     '_emit': True,
                 }
-                for porin in self.parameters['permeability_per_porin']
+                for porin in self.parameters['permeabilities']
             },
             'fields': {
                 # Molecule count in mmol
@@ -93,18 +99,25 @@ class CellEnvironmentDiffusion(Process):
             for molecule in self.parameters['molecules_to_diffuse']
         }
         # Flux is positive when leaving the cell
-        flux = {
+        flux_mmol = {
             molecule: (
                 states['internal'][molecule]
                 - states['external'][molecule]
-            ) * rate
+            ) * rate * units.mmol
             for molecule, rate in rates.items()
         }
-        cell_volume = remove_units(states['global']['volume'])
+        flux_counts = {
+            molecule: flux * AVOGADRO
+            for molecule, flux in flux_mmol.items()
+        }
+        if not isinstance(states['global']['volume'], Quantity):
+            cell_volume = states['global']['volume'] * units.fL
+        else:
+            cell_volume = states['global']['volume']
         update = {
             'fields': {
                 molecule: {
-                    '_value': mol_flux,
+                    '_value': mol_flux.to(units.count).magnitude,
                     '_updater': {
                         'updater': 'update_field_with_exchange',
                         'port_mapping': {
@@ -113,11 +126,13 @@ class CellEnvironmentDiffusion(Process):
                         },
                     },
                 }
-                for molecule, mol_flux in flux.items()
+                for molecule, mol_flux in flux_counts.items()
             },
             'internal': {
-                molecule: - mol_flux / cell_volume
-                for molecule, mol_flux in flux.items()
+                molecule: - (
+                    mol_flux / cell_volume
+                ).to(units.mmol / units.L).magnitude
+                for molecule, mol_flux in flux_mmol.items()
             },
         }
         return update

@@ -45,7 +45,7 @@ from vivarium.core.composition import (
 )
 from vivarium.library.kinetic_rate_laws import KineticFluxModel
 from vivarium.library.dict_utils import tuplify_port_dicts
-from vivarium.library.units import units
+from vivarium.library.units import units, remove_units
 
 
 #: The name of the process, which is used to name the subdirectory under
@@ -219,39 +219,23 @@ class ConvenienceKinetics(Process):
             'internal',
             'external'
         ],
-        'global_deriver_key': 'global_deriver'}
-
-    def __init__(self, initial_parameters=None):
-        if initial_parameters is None:
-            initial_parameters = {}
-
-        self.nAvogadro = constants.N_A * 1 / units.mol
-
-        # retrieve initial parameters
-        self.reactions = self.or_default(
-            initial_parameters, 'reactions')
-        self.initial_state = self.or_default(
-            initial_parameters, 'initial_state')
-        kinetic_parameters = self.or_default(
-            initial_parameters, 'kinetic_parameters')
-        self.port_ids = self.or_default(
-            initial_parameters, 'port_ids') + [
+        'added_port_ids': [
             'fluxes',
             'fields',
             'global'
-        ]
+        ],
+        'global_deriver_key': 'global_deriver'}
+
+    def __init__(self, parameters=None):
+        super(ConvenienceKinetics, self).__init__(parameters)
+
+        self.reactions = self.parameters['reactions']
+        self.initial_state = self.parameters['initial_state']
+        kinetic_parameters = self.parameters['kinetic_parameters']
+        self.port_ids = self.parameters['port_ids'] + self.parameters['added_port_ids']
 
         # make the kinetic model
         self.kinetic_rate_laws = KineticFluxModel(self.reactions, kinetic_parameters)
-
-        # parameters
-        parameters = {}
-        parameters.update(initial_parameters)
-
-        self.global_deriver_key = self.or_default(
-            initial_parameters, 'global_deriver_key')
-
-        super(ConvenienceKinetics, self).__init__(parameters)
 
     def ports_schema(self):
 
@@ -309,7 +293,7 @@ class ConvenienceKinetics(Process):
 
     def derivers(self):
         return {
-            self.global_deriver_key: {
+            self.parameters['global_deriver_key']: {
                 'deriver': 'globals_deriver',
                 'port_mapping': {
                     'global': 'global'},
@@ -322,7 +306,7 @@ class ConvenienceKinetics(Process):
         mmol_to_counts = states['global']['mmol_to_counts']
 
         # kinetic rate law requires a flat dict with ('port', 'state') keys.
-        flattened_states = tuplify_port_dicts(states)
+        flattened_states = remove_units(tuplify_port_dicts(states))
 
         # get flux
         fluxes = self.kinetic_rate_laws.get_fluxes(flattened_states)

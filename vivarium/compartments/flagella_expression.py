@@ -7,6 +7,7 @@ import random
 import uuid
 import copy
 import pytest
+import numpy as np
 
 from vivarium.core.process import Generator
 from vivarium.core.experiment import Experiment
@@ -14,7 +15,10 @@ from vivarium.core.composition import (
     simulate_compartment_in_experiment,
     plot_compartment_topology,
     plot_simulation_output,
-    save_timeseries,
+    save_flat_timeseries,
+    load_timeseries,
+    assert_timeseries_close,
+    REFERENCE_DATA_DIR,
     COMPARTMENT_OUT_DIR,
 )
 from vivarium.data.nucleotides import nucleotides
@@ -27,6 +31,7 @@ from vivarium.parameters.parameters import (
     get_parameters_logspace,
     plot_scan_results,
 )
+from vivarium.core.emitter import path_timeseries_from_embedded_timeseries
 
 # vivarium libraries
 from vivarium.library.dict_utils import deep_merge
@@ -57,7 +62,7 @@ COMPARTMENT_TIMESTEP = 10.0
 def default_metabolism_config():
     metabolism_config = get_iAF1260b_config()
     metabolism_config.update({
-        'initial_mass': 1339.0,  # 200, # fg of metabolite pools
+        'initial_mass': 1339.0,  # fg of metabolite pools
         'time_step': COMPARTMENT_TIMESTEP,
         'tolerance': {
             'EX_glc__D_e': [1.05, 1.0],
@@ -133,6 +138,7 @@ def get_flagella_expression_config(config):
 
 
 class FlagellaExpressionMetabolism(Generator):
+    name = 'flagella_expression_metabolism'
     defaults = get_flagella_expression_config({})
     defaults.update({
         'boundary_path': ('boundary',),
@@ -143,6 +149,7 @@ class FlagellaExpressionMetabolism(Generator):
         'metabolism': default_metabolism_config(),
         'initial_mass': 0.0 * units.fg,
         'time_step': COMPARTMENT_TIMESTEP,
+        'divide': True,
     })
 
     def __init__(self, config=None):
@@ -184,17 +191,10 @@ class FlagellaExpressionMetabolism(Generator):
         metabolism_config.update({'constrained_reaction_ids': target_fluxes})
         metabolism = Metabolism(metabolism_config)
 
-        # Division
-        # configure division condition and meta-division processes
+        # Division condition
         division_condition = DivisionVolume({})
-        meta_division_config = dict(
-            {},
-            daughter_path=daughter_path,
-            agent_id=agent_id,
-            compartment=self)
-        meta_division = MetaDivision(meta_division_config)
 
-        return {
+        processes = {
             'metabolism': metabolism,
             'transport': transport,
             'mass_deriver': mass_deriver,
@@ -202,9 +202,20 @@ class FlagellaExpressionMetabolism(Generator):
             'translation': translation,
             'degradation': degradation,
             'complexation': complexation,
-            'division': division_condition,
-            'meta_division': meta_division,
+            'division': division_condition
         }
+
+        # divide process set to true, add meta-division processes
+        if config['divide']:
+            meta_division_config = dict(
+                {},
+                daughter_path=daughter_path,
+                agent_id=agent_id,
+                compartment=self)
+            meta_division = MetaDivision(meta_division_config)
+            processes['meta_division'] = meta_division
+
+        return processes
 
     def generate_topology(self, config):
         boundary_path = config['boundary_path']
@@ -212,7 +223,7 @@ class FlagellaExpressionMetabolism(Generator):
         agents_path = config['agents_path']
         external_path = boundary_path + ('external',)
 
-        return {
+        topology = {
             'mass_deriver': {
                 'global': boundary_path,
             },
@@ -263,11 +274,15 @@ class FlagellaExpressionMetabolism(Generator):
             'division': {
                 'global': boundary_path,
             },
-            'meta_division': {
-                'global': boundary_path,
-                'cells': agents_path,
-            }
+
         }
+        if config['divide']:
+            topology.update({
+                'meta_division': {
+                    'global': boundary_path,
+                    'cells': agents_path,
+                }})
+        return topology
 
 
 def flagella_expression_compartment(config):
@@ -298,6 +313,7 @@ def get_flagella_metabolism_initial_state(ports={}):
                 UNBOUND_RNAP_KEY: 100
             }
     }
+
 
 def get_flagella_initial_state(ports={}):
     flagella_data = FlagellaChromosome()
@@ -415,7 +431,42 @@ def run_flagella_compartment(
         out_dir)
 
 
-# @pytest.mark.slow
+def test_flagella_metabolism(seed=1):
+    random.seed(seed)
+    np.random.seed(seed)
+
+    # make the compartment and state
+    compartment = FlagellaExpressionMetabolism({'divide': False})
+    initial_state = get_flagella_metabolism_initial_state()
+    name = compartment.name
+    # run simulation
+    settings = {
+        'total_time': 60,
+        'emit_step': COMPARTMENT_TIMESTEP,
+        'initial_state': initial_state,
+    }
+    timeseries = simulate_compartment_in_experiment(compartment, settings)
+
+    # remove non-numerical data for timeseries comparison, convert to path_timeseries
+    del timeseries['chromosome']
+    del timeseries['ribosomes']
+    del timeseries['dimensions']
+    del timeseries['boundary']['divide']
+    del timeseries['fields']
+    del timeseries['null']
+    path_timeseries = path_timeseries_from_embedded_timeseries(timeseries)
+
+    # # save reference timeseries
+    # out_dir = os.path.join(COMPARTMENT_OUT_DIR, name)
+    # if not os.path.exists(out_dir):
+    #     os.makedirs(out_dir)
+    # save_flat_timeseries(path_timeseries, out_dir)
+
+    reference = load_timeseries(
+        os.path.join(REFERENCE_DATA_DIR, name + '.csv'))
+    assert_timeseries_close(path_timeseries, reference)
+
+@pytest.mark.slow
 def test_flagella_expression():
     flagella_compartment = flagella_expression_compartment({})
 
@@ -509,15 +560,29 @@ if __name__ == '__main__':
         make_flagella_network(out_dir)
     elif args.topology:
         compartment = flagella_expression_compartment({})
-        make_compartment_topology(compartment, out_dir)
+        make_compartment_topology(
+            compartment,
+            out_dir
+        )
     elif args.metabolism:
         mtb_out_dir = os.path.join(out_dir, 'metabolism')
         if not os.path.exists(mtb_out_dir):
             os.makedirs(mtb_out_dir)
-        compartment = FlagellaExpressionMetabolism({})
-        make_compartment_topology(compartment, mtb_out_dir)
-        run_flagella_compartment(compartment, get_flagella_metabolism_initial_state(), mtb_out_dir)
+        compartment = FlagellaExpressionMetabolism({'divide': False})
+        make_compartment_topology(
+            compartment,
+            mtb_out_dir
+        )
+        run_flagella_compartment(
+            compartment,
+            get_flagella_metabolism_initial_state(),
+            mtb_out_dir
+        )
     else:
         compartment = flagella_expression_compartment({})
-        run_flagella_compartment(compartment, get_flagella_initial_state(), out_dir)
+        run_flagella_compartment(
+            compartment,
+            get_flagella_initial_state(),
+            out_dir
+        )
 

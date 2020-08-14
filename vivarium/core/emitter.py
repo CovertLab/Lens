@@ -9,7 +9,6 @@ try:
 except ImportError:
     from urllib import quote_plus  # Python 2
 
-from vivarium.actor.actor import delivery_report
 from vivarium.library.dict_utils import (
     merge_dicts, value_in_embedded_dict, get_path_list_from_dict, \
     get_value_from_path, make_path_dict)
@@ -27,6 +26,15 @@ CONFIGURATION_INDEXES = [
 
 SECRETS_PATH = 'secrets.json'
 
+
+def delivery_report(err, msg):
+    """
+    This is a utility method passed to the Kafka Producer to handle the delivery
+    of messages sent using `send(topic, message)`.
+    """
+    if err is not None:
+        print('message delivery failed: {}'.format(msg))
+        print('failed message: {}'.format(err))
 
 def create_indexes(table, columns):
     '''Create all of the necessary indexes for the given table name.'''
@@ -224,16 +232,20 @@ class DatabaseEmitter(Emitter):
         table.insert_one(data)
 
     def get_data(self):
-        query = {'experiment_id': self.experiment_id}
-        raw_data = self.history.find(query)
-        raw_data = list(raw_data)
-        data = {}
-        for datum in raw_data:
-            time = datum['time']
-            data[time] = {
-                key: value for key, value in datum.items()
-                if key not in ['_id', 'experiment_id', 'time']}
-        return data
+        return get_history_data_db(self.history, self.experiment_id)
+
+
+def get_history_data_db(history_collection, experiment_id):
+    query = {'experiment_id': experiment_id}
+    raw_data = history_collection.find(query)
+    raw_data = list(raw_data)
+    data = {}
+    for datum in raw_data:
+        time = datum['time']
+        data[time] = {
+            key: value for key, value in datum.items()
+            if key not in ['_id', 'experiment_id', 'time']}
+    return data
 
 
 def get_atlas_client(secrets_path):

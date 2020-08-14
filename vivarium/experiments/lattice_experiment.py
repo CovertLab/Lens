@@ -4,7 +4,16 @@ import os
 import sys
 import argparse
 import uuid
+import random
+import pytest
 
+import numpy as np
+
+from vivarium.core.emitter import path_timeseries_from_data
+from vivarium.library.timeseries import (
+    process_path_timeseries_for_csv,
+    save_flat_timeseries,
+)
 from vivarium.core.experiment import (
     Experiment
 )
@@ -13,6 +22,9 @@ from vivarium.core.composition import (
     simulate_experiment,
     plot_agents_multigen,
     EXPERIMENT_OUT_DIR,
+    REFERENCE_DATA_DIR,
+    load_timeseries,
+    assert_timeseries_close,
 )
 from vivarium.plots.multibody_physics import (
     plot_snapshots,
@@ -38,7 +50,9 @@ from vivarium.compartments.flagella_expression import (
 
 
 NAME = 'lattice'
+OUT_DIR = os.path.join(EXPERIMENT_OUT_DIR, NAME)
 DEFAULT_ENVIRONMENT_TYPE = Lattice
+TIME_STEP = 1
 
 
 # agents and their configurations
@@ -48,6 +62,8 @@ agents_library = {
         'type': GrowthDivision,
         'config': {
             'agents_path': ('..', '..', 'agents'),
+            'fields_path': ('..', '..', 'fields'),
+            'dimensions_path': ('..', '..', 'dimensions'),
         }
     },
     'growth_division_minimal': {
@@ -55,6 +71,8 @@ agents_library = {
         'type': GrowthDivisionMinimal,
         'config': {
             'agents_path': ('..', '..', 'agents'),
+            'fields_path': ('..', '..', 'fields'),
+            'dimensions_path': ('..', '..', 'dimensions'),
             'growth_rate': 0.001,
             'division_volume': 2.6
         }
@@ -64,6 +82,8 @@ agents_library = {
         'type': FlagellaExpressionMetabolism,
         'config': {
             'agents_path': ('..', '..', 'agents'),
+            'fields_path': ('..', '..', 'fields'),
+            'dimensions_path': ('..', '..', 'dimensions'),
         }
     },
     'transport_metabolism': {
@@ -73,6 +93,8 @@ agents_library = {
             'agents_path': ('..', '..', 'agents'),
             'fields_path': ('..', '..', 'fields'),
             'dimensions_path': ('..', '..', 'dimensions'),
+            'metabolism': {'time_step': 10},
+            'transport': {'time_step': 10},
         }
     },
 }
@@ -80,6 +102,7 @@ agents_library = {
 
 # environment config
 def get_lattice_config(
+    time_step=TIME_STEP,
     bounds=[20, 20],
     n_bins=[10, 10],
     jitter_force=1e-4,
@@ -87,36 +110,68 @@ def get_lattice_config(
     diffusion=1e-2,
     molecules=['glc__D_e', 'lcts_e'],
     gradient={},
+    keep_fields_emit=[],
 ):
 
     environment_config = {
         'multibody': {
+            'time_step': time_step,
             'bounds': bounds,
             'jitter_force': jitter_force,
             'agents': {}
         },
         'diffusion': {
+            # 'time_step': time_step,
             'molecules': molecules,
             'n_bins': n_bins,
             'bounds': bounds,
             'depth': depth,
             'diffusion': diffusion,
             'gradient': gradient,
+            '_schema': {
+                'fields': {
+                    field_id: {
+                        '_emit': False}
+                    for field_id in molecules
+                    if field_id not in keep_fields_emit}}
         }
     }
+
     return environment_config
 
-def get_iAF1260b_environment():
+def get_iAF1260b_environment(
+    time_step=TIME_STEP,
+    bounds=[20,20],
+    n_bins=[10, 10],
+    jitter_force=1e-4,
+    depth=3000.0,
+    scale_concentration=1,  # scales minimal media
+    diffusion=5e-3,
+    override_initial={},
+    keep_fields_emit=[],
+):
     # get external state from iAF1260b metabolism
     config = get_iAF1260b_config()
     metabolism = Metabolism(config)
-    molecules = metabolism.initial_state['external']
+    molecules = {
+        mol_id: conc * scale_concentration
+        for mol_id, conc in metabolism.initial_state['external'].items()
+    }
+    for mol_id, conc in override_initial.items():
+        molecules[mol_id] = conc
     gradient = {
         'type': 'uniform',
         'molecules': molecules}
     return get_lattice_config(
+        time_step=time_step,
+        bounds=bounds,
         molecules=list(molecules.keys()),
+        n_bins=n_bins,
+        jitter_force=jitter_force,
+        depth=depth,
+        diffusion=diffusion,
         gradient=gradient,
+        keep_fields_emit=keep_fields_emit,
     )
 
 environments_library = {
@@ -129,12 +184,35 @@ environments_library = {
     },
     'iAF1260b': {
         'type': DEFAULT_ENVIRONMENT_TYPE,
-        'config': get_iAF1260b_environment(),
+        'config': get_iAF1260b_environment(
+            bounds=[17, 17],
+        ),
     },
+    'shallow_iAF1260b': {
+        'type': DEFAULT_ENVIRONMENT_TYPE,
+        'config': get_iAF1260b_environment(
+            time_step=10,
+            bounds=[30, 30],
+            n_bins=[40, 40],
+            jitter_force=2e-3,
+            depth=1e1,
+            scale_concentration=10000,
+            diffusion=1e-1,
+            override_initial={
+                'glc__D_e': 0.2,
+                'lcts_e': 8.0},
+            keep_fields_emit=[
+                'glc__D_e',
+                'lcts_e'],
+        ),
+    }
 }
+
 
 # simulation settings
 def get_experiment_settings(
+        experiment_name='lattice',
+        description='an experiment in the lattice environment',
         total_time=4000,
         emit_step=10,
         emitter='timeseries',
@@ -142,6 +220,8 @@ def get_experiment_settings(
         return_raw_data=True,
 ):
     return {
+        'experiment_name': experiment_name,
+        'description': description,
         'total_time': total_time,
         'emit_step': emit_step,
         'emitter': emitter,
@@ -247,7 +327,7 @@ def run_lattice_experiment(
     # agents ids
     agent_ids = []
     for config in agents_config:
-        number = config['number']
+        number = config.get('number', 1)
         if 'name' in config:
             name = config['name']
             if number > 1:
@@ -348,12 +428,50 @@ def test_growth_division_experiment():
     assert final_agents > initial_agents
 
 
+@pytest.mark.slow
+def test_transport_metabolism_experiment(seed=1):
+    random.seed(seed)
+    np.random.seed(seed)
+    experiment_name = 'transport_metabolism_experiment'
+    agent_config = agents_library['transport_metabolism']
+    agents_config = [agent_config]
+    environment_config = environments_library['shallow_iAF1260b']
+    experiment_settings = get_experiment_settings(total_time=60)
+
+    # simulate
+    data = run_lattice_experiment(
+        agents_config=agents_config,
+        environment_config=environment_config,
+        # initial_state=initial_state,
+        # initial_agent_state=initial_agent_state,
+        experiment_settings=experiment_settings,
+    )
+    path_ts = path_timeseries_from_data(data)
+    del path_ts[('agents', 'transport_metabolism', 'boundary', 'divide')]  # these contain 'False'
+
+    # save timeseries as csv
+    processed_for_csv = process_path_timeseries_for_csv(path_ts)
+    make_dir(OUT_DIR)
+    save_flat_timeseries(
+        processed_for_csv,
+        OUT_DIR,
+        experiment_name + '.csv')
+
+    # compare timeseries to reference
+    test_output = load_timeseries(os.path.join(OUT_DIR, experiment_name + '.csv'))
+    expected = load_timeseries(os.path.join(REFERENCE_DATA_DIR, experiment_name + '.csv'))
+    assert_timeseries_close(
+        test_output, expected,
+        default_tolerance=(1 - 1e-5),
+    )
+
+
 def make_dir(out_dir):
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
 def main():
-    out_dir = os.path.join(EXPERIMENT_OUT_DIR, NAME)
+    out_dir = OUT_DIR
     make_dir(out_dir)
 
     parser = argparse.ArgumentParser(description='lattice_experiment')
@@ -411,7 +529,7 @@ def main():
                 emit_step=120,
                 agent_names=True,
                 emitter='database',
-                total_time=11000,
+                total_time=12000,
             ),
             plot_settings=get_plot_settings(
                 skip_paths=[
@@ -433,12 +551,30 @@ def main():
         make_dir(txp_mtb_out_dir)
         run_workflow(
             agent_type='transport_metabolism',
+            n_agents=2,
+            environment_type='shallow_iAF1260b',
+            initial_agent_state={
+                'boundary': {
+                    'external': {
+                        'glc__D_e': 1.0,
+                        'lcts_e': 1.0}}},
             out_dir=txp_mtb_out_dir,
-            simulation_settings=get_simulation_settings(
-                total_time=100,
+            experiment_settings=get_experiment_settings(
+                experiment_name='glucose lactose diauxie',
+                description='glucose-lactose diauxic shifters are placed in a shallow environment with glucose and '
+                           'lactose. They start off with no internal LacY and uptake only glucose, but LacY is '
+                           'expressed upon depletion of glucose they begin to uptake lactose. Cells have an iAF1260b '
+                           'BiGG metabolism, kinetic transport of glucose and lactose, and ode-based gene expression '
+                           'of LacY',
+                total_time=6000,
+                emit_step=200,
+                emitter='database',
             ),
             plot_settings=get_plot_settings(
                 fields=['glc__D_e', 'lcts_e'],
+                tags=[
+                    ('cytoplasm', 'LacY'),
+                ],
             ),
         ),
 

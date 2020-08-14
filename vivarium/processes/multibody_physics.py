@@ -29,7 +29,7 @@ from vivarium.core.composition import (
     simulate_experiment,
     PROCESS_OUT_DIR,
 )
-from vivarium.processes.Vladimirov2008_motor import run, tumble
+from vivarium.processes.coarse_motor import run, tumble
 from vivarium.processes.derive_globals import volume_from_length
 
 # plotting

@@ -14,10 +14,7 @@ from vivarium.core.emitter import (
     path_timeseries_from_embedded_timeseries,
     path_timeseries_from_data,
 )
-from vivarium.core.experiment import (
-    Experiment,
-    update_in,
-)
+from vivarium.core.experiment import Experiment
 from vivarium.core.process import Process, Deriver, Generator, generate_derivers
 from vivarium.core import emitter as emit
 from vivarium.library.dict_utils import (
@@ -127,6 +124,10 @@ def agent_environment_experiment(
                     agent_id: initial_agent_state
                     for agent_id in agent_ids})
 
+    if 'agents' in initial_state:
+        environment_config[
+            'config']['diffusion']['agents'] = initial_state['agents']
+
     # initialize the environment
     environment_type = environment_config['type']
     environment_compartment = environment_type(environment_config['config'])
@@ -138,7 +139,7 @@ def agent_environment_experiment(
     processes['agents'] = agents['processes']
     topology['agents'] = agents['topology']
 
-    if settings['agent_names'] is True:
+    if settings.get('agent_names') is True:
         # add an AgentNames processes, which saves the current agent names
         # to as store at the top level of the hierarchy
         processes['agent_names'] = AgentNames({})
@@ -153,17 +154,24 @@ def agent_environment_experiment(
         'emitter': emitter,
         'initial_state': initial_state,
     }
+    if settings.get('experiment_name'):
+        experiment_config['experiment_name'] = settings.get('experiment_name')
+    if settings.get('description'):
+        experiment_config['description'] = settings.get('description')
     if invoke:
         experiment_config['invoke'] = invoke
+    if 'emit_step' in settings:
+        experiment_config['emit_step'] = settings['emit_step']
     return Experiment(experiment_config)
 
 def process_in_compartment(process, topology={}):
     """ put a lone process in a compartment"""
     class ProcessCompartment(Generator):
         def __init__(self, config):
-            self.config = config
+            super(ProcessCompartment, self).__init__(config)
+            self.schema_override = {}
             self.topology = topology
-            self.process = process(config)
+            self.process = process(self.config)
 
         def generate_processes(self, config):
             return {'process': self.process}
@@ -282,16 +290,16 @@ def compartment_in_experiment(compartment, settings={}):
     topology = network['topology']
 
     if timeline is not None:
-        # Environment requires ports for all states defined in the timeline
+        # Environment requires ports for all states defined in the timeline, and a global port
         ports = timeline['ports']
         timeline_process = TimelineProcess({'timeline': timeline['timeline']})
         processes.update({'timeline_process': timeline_process})
+        if 'global' not in ports:
+            ports['global'] = ('global',)
         topology.update({
-            'timeline_process': {'global': ('global',)}
-        })
-        topology['timeline_process'].update({
-                port_id: ports[port_id]
-                for port_id in timeline_process.ports if port_id != 'global'})
+            'timeline_process': {
+                port: path
+                for port, path in ports.items()}})
 
     if environment is not None:
         # Environment requires ports for external, fields, dimensions,
@@ -722,13 +730,16 @@ def plot_agents_multigen(data, settings={}, out_dir='out', filename='agents'):
             ax.title.set_text(path)
             ax.title.set_fontsize(title_size)
             ax.set_xlim([time_vec[0], time_vec[-1]])
+            ax.xaxis.get_offset_text().set_fontsize(tick_label_size)
+            ax.yaxis.get_offset_text().set_fontsize(tick_label_size)
 
             # if last state in this port, add time ticks
             if (row_idx >= highest_row
                 or path_idx >= len(ordered_paths[port_id]) - 1
             ):
                 set_axes(ax, True)
-                ax.set_xlabel('time (s)')
+                ax.set_xlabel('time (s)', fontsize=title_size)
+
             else:
                 set_axes(ax)
             ax.set_xlim([time_vec[0], time_vec[-1]])
@@ -780,12 +791,15 @@ def agent_timeseries_from_data(data, agents_key='cells'):
     return timeseries
 
 def save_timeseries(timeseries, out_dir='out'):
-    '''Save a timeseries as a CSV in out_dir'''
     flattened = flatten_timeseries(timeseries)
-    rows = np.transpose(list(flattened.values())).tolist()
+    save_flat_timeseries(flattened, out_dir)
+
+def save_flat_timeseries(timeseries, out_dir='out'):
+    '''Save a timeseries as a CSV in out_dir'''
+    rows = np.transpose(list(timeseries.values())).tolist()
     with open(os.path.join(out_dir, 'simulation_data.csv'), 'w') as f:
         writer = csv.writer(f)
-        writer.writerow(flattened.keys())
+        writer.writerow(timeseries.keys())
         writer.writerows(rows)
 
 def load_timeseries(path_to_csv):

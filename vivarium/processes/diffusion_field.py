@@ -25,6 +25,7 @@ from vivarium.library.lattice_utils import (
     get_bin_site,
     get_bin_volume,
 )
+from vivarium.library.units import units
 
 from vivarium.plots.multibody_physics import plot_snapshots
 
@@ -222,6 +223,7 @@ class DiffusionField(Process):
 
     name = NAME
     defaults = {
+        'time_step': 1,
         'molecules': ['glc'],
         'initial_state': {},
         'n_bins': [10, 10],
@@ -353,7 +355,9 @@ class DiffusionField(Process):
         return update
 
     def count_to_concentration(self, count):
-        return count_to_concentration(count, self.bin_volume)
+        return count_to_concentration(
+            count * units.count, self.bin_volume * units.L
+        ).to(units.mmol / units.L).magnitude
 
     def get_bin_site(self, location):
         return get_bin_site(location, self.n_bins, self.bounds)

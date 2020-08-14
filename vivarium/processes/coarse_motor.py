@@ -9,6 +9,7 @@ from __future__ import absolute_import, division, print_function
 import os
 import random
 import copy
+import math
 
 import numpy as np
 from numpy import linspace
@@ -19,12 +20,12 @@ from vivarium.core.composition import (
     simulate_process_in_experiment,
     PROCESS_OUT_DIR,
 )
-from vivarium.plots.Vladimirov2008_motor import (
+from vivarium.plots.coarse_motor import (
     plot_variable_receptor,
     plot_motor_control,
 )
 
-NAME = 'Vladimirov2008_motor'
+NAME = 'coarse_motor'
 
 class MotorActivity(Process):
     ''' Model of motor activity
@@ -48,19 +49,22 @@ class MotorActivity(Process):
 
     name = NAME
     defaults = {
-        'parameters': {
-            # 'k_A': 5.0,  #
-            'k_y': 100.0,  # 1/uM/s
-            'k_z': 30.0,  # / CheZ,
-            'gamma_Y': 0.1,
-            'k_s': 0.45,  # scaling coefficient
-            'adapt_precision': 3,  # scales CheY_P to cluster activity
-            # motor
-            'mb_0': 0.65,  # steady state motor bias (Cluzel et al 2000)
-            'n_motors': 5,
-            'cw_to_ccw': 0.83,  # 1/s (Block1983) motor bias, assumed to be constant
-            'time_step': 0.1,
-        },
+        'time_step': 0.1,
+        # Vladimirov parameters
+        # 'k_A': 5.0,  #
+        'k_y': 100.0,  # 1/uM/s
+        'k_z': 30.0,  # / CheZ,
+        'gamma_Y': 0.1,  # rate constant
+        'k_s': 0.45,  # scaling coefficient
+        'adapt_precision': 3,  # scales CheY_P to cluster activity
+        # motor
+        'mb_0': 0.65,  # steady state motor bias (Cluzel et al 2000)
+        'n_motors': 5,
+        'cw_to_ccw': 0.83,  # 1/s (Block1983) motor bias, assumed to be constant
+        'cw_to_ccw_leak': 0.25,  # rate of spontaneous transition to tumble
+        # parameters for multibody physics
+        'tumble_jitter': 120.0,
+        # initial state
         'initial_state': {
             'internal': {
                 # response regulator proteins
@@ -81,13 +85,7 @@ class MotorActivity(Process):
             }}
     }
 
-    def __init__(self, initial_parameters=None):
-        if initial_parameters is None:
-            initial_parameters = {}
-
-        parameters = self.defaults['parameters']
-        parameters.update(initial_parameters)
-
+    def __init__(self, parameters=None):
         super(MotorActivity, self).__init__(parameters)
 
     def ports_schema(self):
@@ -95,7 +93,7 @@ class MotorActivity(Process):
         schema = {port: {} for port in ports}
 
         # external
-        for state, default in self.defaults['initial_state']['external'].items():
+        for state, default in self.parameters['initial_state']['external'].items():
             schema['external'][state] = {
                 '_default': default,
                 '_emit': True,
@@ -108,7 +106,7 @@ class MotorActivity(Process):
                 'motor_state',
                 'CheA',
                 'CheY_P']
-        for state, default in self.defaults['initial_state']['internal'].items():
+        for state, default in self.parameters['initial_state']['internal'].items():
             schema['internal'][state] = {'_default': default}
             if state in set_and_emit:
                 schema['internal'][state].update({
@@ -139,20 +137,25 @@ class MotorActivity(Process):
         # CCW corresponds to run. CW corresponds to tumble
         ccw_motor_bias = mb_0 / (CheY_P * (1 - mb_0) + mb_0)  # (1/s)
         ccw_to_cw = cw_to_ccw * (1 / ccw_motor_bias - 1)  # (1/s)
+        # don't let ccw_to_cw get under leak value
+        if ccw_to_cw < self.parameters['cw_to_ccw_leak']:
+            ccw_to_cw = self.parameters['cw_to_ccw_leak']
 
         if motor_state_current == 0:  # 0 for run
             # switch to tumble (cw)?
-            prob_switch = ccw_to_cw * timestep
+            rate = -math.log(1 - ccw_to_cw)  # rate for probability function of time
+            prob_switch = 1 - math.exp(-rate * timestep)
             if np.random.random(1)[0] <= prob_switch:
                 motor_state = 1
-                thrust, torque = tumble()
+                thrust, torque = tumble(self.parameters['tumble_jitter'])
             else:
                 motor_state = 0
                 thrust, torque = run()
 
         elif motor_state_current == 1:  # 1 for tumble
             # switch to run (ccw)?
-            prob_switch = cw_to_ccw * timestep
+            rate = -math.log(1 - cw_to_ccw)  # rate for probability function of time
+            prob_switch = 1 - math.exp(-rate * timestep)
             if np.random.random(1)[0] <= prob_switch:
                 motor_state = 0
                 [thrust, torque] = run()
@@ -171,12 +174,11 @@ class MotorActivity(Process):
                 'torque': torque
             }}
 
-def tumble():
+def tumble(tumble_jitter=120.0):
     thrust = 100  # pN
     # average = 160
     # sigma = 10
     # torque = random.choice([-1, 1]) * random.normalvariate(average, sigma)
-    tumble_jitter = 120.0
     torque = random.normalvariate(0, tumble_jitter)
     return [thrust, torque]
 
@@ -199,12 +201,12 @@ def test_variable_receptor():
     motor = MotorActivity()
     state = motor.default_state()
     timestep = 1
-    receptor_activities = linspace(0.0, 1.0, 501).tolist()
+    chemoreceptor_activity = linspace(0.0, 1.0, 501).tolist()
     CheY_P_vec = []
     ccw_motor_bias_vec = []
     ccw_to_cw_vec = []
     motor_state_vec = []
-    for activity in receptor_activities:
+    for activity in chemoreceptor_activity:
         state['internal']['chemoreceptor_activity'] = activity
         update = motor.next_update(timestep, state)
         CheY_P = update['internal']['CheY_P']
@@ -218,14 +220,14 @@ def test_variable_receptor():
         motor_state_vec.append(motile_state)
 
     # check ccw_to_cw bias is strictly increasing with increased receptor activity
-    assert all(i < j for i, j in zip(ccw_to_cw_vec, ccw_to_cw_vec[1:]))
+    assert all(i <= j for i, j in zip(ccw_to_cw_vec, ccw_to_cw_vec[1:]))
 
     return {
-        'receptor_activities': receptor_activities,
-        'CheY_P_vec': CheY_P_vec,
-        'ccw_motor_bias_vec': ccw_motor_bias_vec,
-        'ccw_to_cw_vec': ccw_to_cw_vec,
-        'motor_state_vec': motor_state_vec}
+        'chemoreceptor_activity': chemoreceptor_activity,
+        'CheY_P': CheY_P_vec,
+        'ccw_motor_bias': ccw_motor_bias_vec,
+        'ccw_to_cw': ccw_to_cw_vec,
+        'motor_state': motor_state_vec}
 
 
 if __name__ == '__main__':

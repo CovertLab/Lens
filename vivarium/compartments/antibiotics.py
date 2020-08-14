@@ -58,7 +58,7 @@ class Antibiotics(Generator):
             'initial_pump': 0.0,
             'initial_internal_antibiotic': INITIAL_INTERNAL_ANTIBIOTIC,
             'initial_external_antibiotic': INITIAL_EXTERNAL_ANTIBIOTIC,
-            'pump_kcat': 2e-6,
+            'pump_kcat': 5e-4,
         },
         'death': {
             'detectors': {
@@ -81,7 +81,7 @@ class Antibiotics(Generator):
         'diffusion': {
             'default_state': {
                 'membrane': {
-                    'porin': 1e-2,
+                    'porin': 1e-20,
                 },
                 'external': {
                     'antibiotic': INITIAL_EXTERNAL_ANTIBIOTIC,

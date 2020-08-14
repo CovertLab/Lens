@@ -29,6 +29,10 @@ from pint.quantity import _Quantity as Quantity
 #: Units registry that stores the units used throughout Vivarium
 units = pint.UnitRegistry()
 
+# We need to set this registry as the default application-wide so our
+# registry will be used when unpickling
+pint.set_application_registry(units)
+
 
 def remove_units(collection):
     '''Strip the units from a collection or scalar

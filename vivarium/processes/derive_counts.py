@@ -16,36 +16,28 @@ class DeriveCounts(Deriver):
         'initial_state': get_default_global_state(),
     }
 
-    def __init__(self, initial_parameters=None):
-        if initial_parameters is None:
-            initial_parameters = {}
-
-        self.initial_state = self.or_default(
-            initial_parameters, 'initial_state')
-        self.concentration_keys = self.or_default(
-            initial_parameters, 'concentration_keys')
-
-        parameters = {}
-        parameters.update(initial_parameters)
-
+    def __init__(self, parameters=None):
         super(DeriveCounts, self).__init__(parameters)
 
     def ports_schema(self):
         return {
             'global': {
                 'volume': {
-                    '_default': self.initial_state['global']['volume'].to('fL')},
+                    '_default': self.parameters[
+                        'initial_state']['global']['volume'].to('fL')},
                 'mmol_to_counts': {
-                    '_default': self.initial_state['global']['mmol_to_counts'].to('L/mmol')}},
+                    '_default': self.parameters[
+                        'initial_state']['global']['mmol_to_counts'].to('L/mmol')}},
             'counts': {
                 molecule: {
+                    '_default': 0,
                     '_divider': 'split',
                     '_updater': 'set'}
-                for molecule in self.concentration_keys},
+                for molecule in self.parameters['concentration_keys']},
             'concentrations': {
                 molecule: {
                     '_default': 0.0}
-                for molecule in self.concentration_keys}}
+                for molecule in self.parameters['concentration_keys']}}
 
     def next_update(self, timestep, states):
         mmol_to_counts = states['global']['mmol_to_counts'].to('L/mmol').magnitude

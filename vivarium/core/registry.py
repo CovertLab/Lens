@@ -85,7 +85,7 @@ import random
 import numpy as np
 
 from vivarium.library.dict_utils import deep_merge
-from vivarium.library.units import Quantity
+from vivarium.library.units import Quantity, units
 from vivarium.library.lattice_utils import (
     get_bin_site,
     get_bin_volume,
@@ -170,14 +170,16 @@ def update_field_with_exchange(current_value, new_value, states):
     n_bins = states['dimensions']['n_bins']
     bounds = states['dimensions']['bounds']
     depth = states['dimensions']['depth']
+    exchange = new_value * units.count
     delta_field = np.zeros(
         (n_bins[0], n_bins[1]), dtype=np.float64)
     bin_site = get_bin_site(
         location, n_bins, bounds)
     bin_volume = get_bin_volume(
-        n_bins, bounds, depth)
-    concentration = count_to_concentration(new_value, bin_volume)
-    delta_field[bin_site[0], bin_site[1]] += concentration
+        n_bins, bounds, depth) * units.L
+    concentration = count_to_concentration(exchange, bin_volume)
+    delta_field[bin_site[0], bin_site[1]] += concentration.to(
+        units.mmol / units.L).magnitude
     return current_value + delta_field
 
 

@@ -76,7 +76,8 @@ def plot_activity(data, out_dir='out', filename='motor_control'):
     # plot results
     cols = 1
     rows = 5
-    plt.figure(figsize=(4 * cols, 1.5 * rows))
+    plt.figure(figsize=(3.0 * cols, 1.5 * rows))
+    plt.rc('font', size=12)
 
     # define subplots
     ax1 = plt.subplot(rows, cols, 1)
@@ -90,11 +91,15 @@ def plot_activity(data, out_dir='out', filename='motor_control'):
     ax1.plot(time_vec, CheY_P_vec, label='CheY_P')
     ax1.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     ax1.set_xticks([])
+    ax1.spines['right'].set_visible(False)
+    ax1.spines['top'].set_visible(False)
     ax1.set_xlim(time_vec[0], time_vec[-1])
     ax1.set_ylabel('concentration \n (uM)')
 
     # plot CW bias
     ax2.plot(time_vec, cw_bias_vec)
+    ax2.spines['right'].set_visible(False)
+    ax2.spines['top'].set_visible(False)
     ax2.set_xticks([])
     ax2.set_xlim(time_vec[0], time_vec[-1])
     ax2.set_ylabel('CW bias')
@@ -113,9 +118,11 @@ def plot_activity(data, out_dir='out', filename='motor_control'):
         ax3.set_yticks(list(range(1, len(flagella_ids) + 1)))
         ax3.set_xticks([])
         ax3.set_ylabel('flagella #')
+        ax3.tick_params(axis='both', labelsize=10)
 
         # legend
         ax3.legend(
+            title='activity',
             handles=rotational_legend_elements,
             loc='center left',
             bbox_to_anchor=(1, 0.5))
@@ -132,10 +139,10 @@ def plot_activity(data, out_dir='out', filename='motor_control'):
                extent=[time_vec[0], time_vec[-1], 0, 1])
     ax4.set_yticks([])
     ax4.set_xticks([])
-    ax4.set_ylabel('cell motile state')
 
     # legend
     ax4.legend(
+        title='motile state',
         handles=motile_legend_elements,
         loc='center left',
         bbox_to_anchor=(1, 0.5))
@@ -143,9 +150,10 @@ def plot_activity(data, out_dir='out', filename='motor_control'):
     # plot motor thrust
     ax5.plot(time_vec, thrust_vec)
     ax5.set_xlim(time_vec[0], time_vec[-1])
-    ax5.set_ylabel('total motor thrust (pN)')
+    ax5.spines['right'].set_visible(False)
+    ax5.spines['top'].set_visible(False)
+    ax5.set_ylabel('thrust (pN)')
     ax5.set_xlabel('time (sec)')
-
 
     # save figure
     fig_path = os.path.join(out_dir, filename)

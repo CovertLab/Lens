@@ -9,6 +9,8 @@ from __future__ import absolute_import, division, print_function
 import os
 import argparse
 import random
+import math
+import logging as log
 
 from vivarium.core.process import Process
 from vivarium.library.dict_utils import deep_merge, tuplify_port_dicts
@@ -145,7 +147,7 @@ class ODE_expression(Process):
      ...     'initial_state': initial_state,
      ...     'regulators': [('external', 'glc__D_e')],
      ...     'regulation': {
-     ...         'lacy_RNA': 'if not (external, glc__D_e) > 1.0',
+     ...         'lacy_RNA': 'if (external, glc__D_e) > 1.0',
      ...     },
      ... }
      >>> expression_process = ODE_expression(config)
@@ -168,43 +170,38 @@ class ODE_expression(Process):
 
     name = NAME
     defaults = {
+        'time_step': 1.0,
         'transcription_rates': {},
         'translation_rates': {},
         'degradation_rates': {},
         'protein_map': {},
         'transcription_leak': {
-            'sigma': 0.0,
-            'magnitude': 0.0},
+            'rate': 0.0,  # probability of leak in 1 second
+            'magnitude': 0.0,  # the amount of leak
+        },
         'regulation': {},
         'regulators': [],
         'initial_state': {},
         'counts_deriver_key': 'expression_counts',
     }
 
-    def __init__(self, initial_parameters=None):
-        if initial_parameters is None:
-            initial_parameters = {}
+    def __init__(self, parameters=None):
+        super(ODE_expression, self).__init__(parameters)
 
         # ode gene expression
-        self.transcription = initial_parameters.get(
-            'transcription_rates', self.defaults['transcription_rates'])
-        self.translation = initial_parameters.get(
-            'translation_rates', self.defaults['translation_rates'])
-        self.degradation = initial_parameters.get(
-            'degradation_rates', self.defaults['degradation_rates'])
-        self.protein_map = initial_parameters.get(
-            'protein_map', self.defaults['protein_map'])
-        transcription_leak = initial_parameters.get(
-            'transcription_leak', self.defaults['transcription_leak'])
-        self.transcription_leak_sigma = transcription_leak['sigma']
+        self.transcription = self.parameters.get('transcription_rates')
+        self.translation = self.parameters.get('translation_rates')
+        self.degradation = self.parameters.get('degradation_rates')
+        self.protein_map = self.parameters.get('protein_map')
+        transcription_leak = self.parameters.get('transcription_leak')
+        self.transcription_leak_rate = transcription_leak['rate']
         self.transcription_leak_magnitude = transcription_leak['magnitude']
 
         # boolean regulation
-        regulation_logic = initial_parameters.get(
-            'regulation', self.defaults['regulation'])
+        regulation_logic = self.parameters.get('regulation')
         self.regulation = {
             gene_id: build_rule(logic) for gene_id, logic in regulation_logic.items()}
-        regulators = initial_parameters.get('regulators', self.defaults['regulators'])
+        regulators = self.parameters.get('regulators')
         self.internal_regulators = [state_id for port_id, state_id in regulators if port_id == 'internal']
         self.external_regulators = [state_id for port_id, state_id in regulators if port_id == 'external']
 
@@ -212,17 +209,12 @@ class ODE_expression(Process):
         states = list(self.transcription.keys()) + list(self.translation.keys())
         null_states = {'internal': {
             state_id: 0 for state_id in states}}
-        initialized_states = initial_parameters.get('initial_state', self.defaults['initial_state'])
+        initialized_states = self.parameters.get('initial_state')
         self.initial_state = deep_merge(null_states, initialized_states)
         self.internal = list(self.initial_state.get('internal', {}).keys())
         self.external = list(self.initial_state.get('external', {}).keys())
-        self.counts_deriver_key = self.or_default(
-            initial_parameters, 'counts_deriver_key')
+        self.counts_deriver_key = self.parameters.get('counts_deriver_key')
 
-        parameters = {}
-        parameters.update(initial_parameters)
-
-        super(ODE_expression, self).__init__(parameters)
 
     def ports_schema(self):
         ports = [
@@ -250,6 +242,7 @@ class ODE_expression(Process):
         # counts
         for state in self.internal + self.internal_regulators:
             schema['counts'][state] = {
+                '_divider': 'split',
                 '_emit': True
             }
 
@@ -283,9 +276,13 @@ class ODE_expression(Process):
         # M: conc of mRNA, k_M: transcription rate, d_M: degradation rate
         for transcript, rate in self.transcription.items():
             transcript_state = internal_state[transcript]
-            # do not transcribe inhibited genes
-            if transcript in regulation_state and not regulation_state[transcript]:
-                if random.uniform(0, 1) < abs(random.gauss(0, self.transcription_leak_sigma)):
+
+            # do not transcribe inhibited genes, except for transcription leaks
+            if transcript in regulation_state and regulation_state.get(transcript):
+                # leak probability for probability as function of the time step
+                rate = -math.log(1 - self.transcription_leak_rate)
+                leak_probability = 1 - math.exp(-rate * timestep)
+                if random.uniform(0, 1) < leak_probability:
                     rate = self.transcription_leak_magnitude
                 else:
                     rate = 0.0
@@ -331,11 +328,15 @@ def get_lacy_config():
         'LacY': 3e-5}
 
     # define regulation
-    regulators = [('external', 'glc__D_e')]
-    regulation = {'lacy_RNA': 'if not (external, glc__D_e) > 0.1'}
+    regulators = [
+        ('external', 'glc__D_e'),
+        ('internal', 'lcts_p')]
+    regulation = {
+        'lacy_RNA': 'if (external, glc__D_e) > 0.1 and (internal, lcts_p) < 0.01'} # inhibited in this condition
     transcription_leak = {
-        'sigma': 1e-4,
-        'magnitude': 1e-6}
+        'rate': 1e-4,
+        'magnitude': 1e-6,
+        }
 
     # initial state
     initial_state = {

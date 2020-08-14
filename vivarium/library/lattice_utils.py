@@ -9,8 +9,10 @@ from __future__ import absolute_import, division, print_function
 import numpy as np
 from scipy import constants
 
+from vivarium.library.units import units, Quantity
 
-AVOGADRO = constants.N_A
+
+AVOGADRO = constants.N_A / units.mol
 
 
 def get_bin_site(location, n_bins, bounds):
@@ -57,7 +59,9 @@ def get_bin_volume(n_bins, bounds, depth):
 
 
 def count_to_concentration(count, bin_volume):
-    '''Convert a molecule count into a concentration
+    '''Convert a molecule count into a concentration.
+
+    Parameters should all have units. Returned value will have units.
 
     Parameters:
         count (int): The number of molecules in the bin.

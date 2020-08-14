@@ -20,11 +20,11 @@ from vivarium.core.composition import (
 from vivarium.data.amino_acids import amino_acids
 
 # processes
-from vivarium.processes.Endres2006_chemoreceptor import (
+from vivarium.processes.chemoreceptor_cluster import (
     ReceptorCluster,
     get_exponential_random_timeline
 )
-from vivarium.processes.Mears2014_flagella_activity import FlagellaActivity
+from vivarium.processes.flagella_activity import FlagellaActivity
 from vivarium.processes.transcription import Transcription, UNBOUND_RNAP_KEY
 from vivarium.processes.translation import Translation, UNBOUND_RIBOSOME_KEY
 from vivarium.processes.degradation import RnaDegradation
@@ -40,6 +40,9 @@ from vivarium.compartments.flagella_expression import (
     plot_gene_expression_output,
 )
 
+# plots
+from vivarium.plots.chemotaxis_flagella import plot_signal_transduction
+
 
 
 NAME = 'chemotaxis_flagella'
@@ -51,12 +54,10 @@ DEFAULT_INITIAL_LIGAND = 1e-2
 
 class ChemotaxisVariableFlagella(Generator):
     n_flagella = 5
-    ligand_id = 'MeAsp'
-    initial_ligand = 0.1
     defaults = {
         'receptor': {
-            'ligand_id': ligand_id,
-            'initial_ligand': initial_ligand
+            'ligand_id': DEFAULT_LIGAND,
+            'initial_ligand': DEFAULT_INITIAL_LIGAND
         },
         'flagella': {
             'n_flagella': n_flagella
@@ -296,7 +297,7 @@ def get_timeline(
     initial_conc=DEFAULT_INITIAL_LIGAND,
     total_time=10,
     timestep=1,
-    base=1+4e-4,
+    base=1+3e-4,
     speed=14,
 ):
     return get_exponential_random_timeline({
@@ -313,10 +314,13 @@ def get_baseline_config(
 ):
     return {
         'agents_path': ('agents',),  # Note -- should go two level up for experiments with environment
-        'ligand_id': DEFAULT_LIGAND,
-        'initial_ligand': DEFAULT_INITIAL_LIGAND,
         # 'growth_rate': 0.0001,
-        'n_flagella': n_flagella}
+        'receptor': {
+            'ligand_id': DEFAULT_LIGAND,
+            'initial_ligand': DEFAULT_INITIAL_LIGAND,
+        },
+        'flagella': {
+            'n_flagella': n_flagella}}
 
 
 def print_growth(timeseries):
@@ -360,8 +364,6 @@ def test_ode_expression_chemotaxis(
             'timeline': timeline,
             'ports': {
                 'external': ('boundary', 'external'),
-                'fields': ('fields',),
-                'dimensions': ('dimensions',),
                 'global': ('boundary',),
             },
         },
@@ -447,6 +449,8 @@ def test_variable_chemotaxis(
     # plot
     plot_timeseries(timeseries, out_dir)
 
+    plot_signal_transduction(timeseries, out_dir)
+
 
 def make_dir(out_dir):
     if not os.path.exists(out_dir):
@@ -470,7 +474,7 @@ if __name__ == '__main__':
         make_dir(variable_out_dir)
         test_variable_chemotaxis(
             n_flagella=args.flagella,
-            total_time=60,
+            total_time=90,
             out_dir=variable_out_dir)
     elif args.ode:
         # ODE flagella expression

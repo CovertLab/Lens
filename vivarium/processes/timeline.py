@@ -34,8 +34,7 @@ class TimelineProcess(Process):
 
         schema = {
             port: {
-                '*': {
-                    '_default': 0.0}}
+                '*': {}}
             for port in list(self.ports.keys())
             if port not in ['global']}
 

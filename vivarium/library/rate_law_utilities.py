@@ -25,7 +25,7 @@ import argparse
 import matplotlib.pyplot as plt
 
 from vivarium.data.spreadsheets import load_tsv
-from vivarium.actor import filepath
+from vivarium.library import filepath
 
 from vivarium.library.look_up import LookUp
 import vivarium.library.kinetic_rate_laws as rate_laws

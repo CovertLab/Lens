@@ -37,6 +37,8 @@ class GrowthDivision(Generator):
         'agents_path': ('..', '..', 'agents',),
         'transport': get_glc_lct_config(),
         'daughter_path': tuple(),
+        'fields_path': ('fields',),
+        'dimensions_path': ('dimensions',),
         'growth': {},
         'expression': get_toy_expression_config(),
         'mass': {},
@@ -84,15 +86,16 @@ class GrowthDivision(Generator):
         boundary_path = config['boundary_path']
         agents_path = config['agents_path']
         external_path = boundary_path + ('external',)
-
+        fields_path = config['fields_path']
+        dimensions_path = config['dimensions_path']
         return {
             'transport': {
                 'internal': ('internal',),
                 'external': external_path,
-                'fields': ('fields',),
+                'fields': fields_path,
                 'fluxes': ('fluxes',),
                 'global': boundary_path,
-                'dimensions': ('dimensions',),
+                'dimensions': dimensions_path,
             },
 
             'growth': {

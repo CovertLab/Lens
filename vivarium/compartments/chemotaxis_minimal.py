@@ -11,11 +11,11 @@ from vivarium.core.composition import (
 )
 
 # processes
-from vivarium.processes.Endres2006_chemoreceptor import (
+from vivarium.processes.chemoreceptor_cluster import (
     ReceptorCluster,
     get_exponential_random_timeline
 )
-from vivarium.processes.Vladimirov2008_motor import MotorActivity
+from vivarium.processes.coarse_motor import MotorActivity
 
 
 
@@ -26,22 +26,28 @@ class ChemotaxisMinimal(Generator):
     defaults = {
         'ligand_id': 'MeAsp',
         'initial_ligand': 0.1,
-        'boundary_path': ('boundary',)
+        'boundary_path': ('boundary',),
+        'receptor': {},
+        'motor': {},
     }
 
     def __init__(self, config):
         super(ChemotaxisMinimal, self).__init__(config)
 
     def generate_processes(self, config):
+
+        receptor_config = config['receptor']
+        motor_config = config['motor']
+
         ligand_id = config['ligand_id']
         initial_ligand = config['initial_ligand']
-        receptor_parameters = {
+        receptor_config.update({
             'ligand_id': ligand_id,
-            'initial_ligand': initial_ligand}
+            'initial_ligand': initial_ligand})
 
         # declare the processes
-        receptor = ReceptorCluster(receptor_parameters)
-        motor = MotorActivity({})
+        receptor = ReceptorCluster(receptor_config)
+        motor = MotorActivity(motor_config)
 
         return {
             'receptor': receptor,

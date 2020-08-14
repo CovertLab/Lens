@@ -17,80 +17,68 @@ from vivarium.core.composition import (
 
 NAME = 'membrane_potential'
 
-# PMF ~170mV at pH 7. ~140mV at pH 7.7 (Berg)
-# Ecoli internal pH in range 7.6-7.8 (Berg)
-
-# (mmol) http://book.bionumbers.org/what-are-the-concentrations-of-different-ions-in-cells/
-# Schultz, Stanley G., and A. K. Solomon. "Cation Transport in Escherichia coli" (1961)
-# TODO -- add Mg2+, Ca2+
-DEFAULT_STATE = {
-    'internal': {
-        'K': 300,  # (mmol) 30-300
-        'Na': 10,  # (mmol) 10
-        'Cl': 10},  # (mmol) 10-200 media-dependent
-    'external': {
-        'K': 5,
-        'Na': 145,
-        'Cl': 110,  # (mmol)
-        'T': 310.15}
-    }
-
-DEFAULT_PARAMETERS = {
-    'p_K': 1,  # unitless, relative membrane permeability of K
-    'p_Na': 0.05,  # unitless, relative membrane permeability of Na
-    'p_Cl': 0.05,  # unitless, relative membrane permeability of Cl
-    }
-
-PERMEABILITY_MAP = {
-    'K': 'p_K',
-    'Na': 'p_Na',
-    'Cl': 'p_Cl'
-    }
-
-# cation is positively charged, anion is negatively charged
-CHARGE_MAP = {
-    'K': 'cation',
-    'Na': 'cation',
-    'Cl': 'anion',
-    'PROTON': 'cation',
-    }
 
 class NoChargeError(Exception):
     pass
 
 class MembranePotential(Process):
-    '''
-    Need to add a boot method for this process to vivarium/environment/boot.py for it to run on its own
-    '''
+    """ Membrane Potential
+
+    :term:`Ports`:
+    * ``internal``: holds the concentrations of internal ions
+    * ``external``: holds the concentrations of external ions
+    * ``membrane``: holds the cross-membrane properties 'PMF', 'd_V', 'd_pH'
+
+    Notes:
+        * PMF ~170mV at pH 7. ~140mV at pH 7.7 (Berg)
+        * Ecoli internal pH in range 7.6-7.8 (Berg)
+
+        * (mmol) http://book.bionumbers.org/what-are-the-concentrations-of-different-ions-in-cells/
+        * Schultz, Stanley G., and A. K. Solomon. "Cation Transport in Escherichia coli" (1961)
+        * TODO -- add Mg2+, Ca2+
+    """
 
     name = NAME
     defaults = {
-        'initial_state': DEFAULT_STATE,
-        'parameters': DEFAULT_PARAMETERS,
-        'permeability': PERMEABILITY_MAP,
-        'charge': CHARGE_MAP,
-        'constants': {
-            'R': constants.gas_constant,  # (J * K^-1 * mol^-1) gas constant
-            'F': constants.physical_constants['Faraday constant'][0],  # (C * mol^-1) Faraday constant
-            'k': constants.Boltzmann,  # (J * K^-1) Boltzmann constant
-            }
+        'initial_state': {
+            'internal': {
+                'K': 300,  # (mmol) 30-300
+                'Na': 10,  # (mmol) 10
+                'Cl': 10},  # (mmol) 10-200 media-dependent
+            'external': {
+                'K': 5,
+                'Na': 145,
+                'Cl': 110,  # (mmol)
+                'T': 310.15}
+        },
+
+        'permeability_map': {
+            'K': 'p_K',
+            'Na': 'p_Na',
+            'Cl': 'p_Cl'
+        },
+
+        # cation is positively charged, anion is negatively charged
+        'charge_map': {
+            'K': 'cation',
+            'Na': 'cation',
+            'Cl': 'anion',
+            'PROTON': 'cation',
+        },
+
+        # parameters
+        'p_K': 1,  # unitless, relative membrane permeability of K
+        'p_Na': 0.05,  # unitless, relative membrane permeability of Na
+        'p_Cl': 0.05,  # unitless, relative membrane permeability of Cl
+
+        # physical constants
+        'R': constants.gas_constant,  # (J * K^-1 * mol^-1) gas constant
+        'F': constants.physical_constants['Faraday constant'][0],  # (C * mol^-1) Faraday constant
+        'k': constants.Boltzmann,  # (J * K^-1) Boltzmann constant
     }
 
-    def __init__(self, initial_parameters=None):
-        if not initial_parameters:
-            initial_parameters = {}
-
-        self.initial_state = self.or_default(
-            initial_parameters, 'initial_state')
-        self.permeability = self.or_default(
-            initial_parameters, 'permeability')
-        self.charge = self.or_default(
-            initial_parameters, 'charge')
-        self.parameters = self.or_default(
-            initial_parameters, 'parameters')
-        self.parameters.update(self.defaults['constants'])
-
-        super(MembranePotential, self).__init__(self.parameters)
+    def __init__(self, parameters=None):
+        super(MembranePotential, self).__init__(parameters)
 
     def ports_schema(self):
         ports = [
@@ -102,17 +90,17 @@ class MembranePotential(Process):
 
         ## internal
         # internal ions and charge (c_in)
-        for state in list(self.initial_state['internal'].keys()):
-            schema['internal'][state] = {
-                '_default': self.initial_state['internal'].get(state, 0.0),
+        for state_id, value in self.parameters['initial_state']['internal'].items():
+            schema['internal'][state_id] = {
+                '_default': value,
                 '_emit': True,
             }
 
         ## external
         # external ions, charge (c_out) and temperature (T)
-        for state in list(self.initial_state['external'].keys()) + ['T']:
-            schema['external'][state] = {
-                '_default': self.initial_state['external'].get(state, 0.0),
+        for state_id, value in self.parameters['initial_state']['external'].items():
+            schema['external'][state_id] = {
+                '_default': value,
                 '_emit': True,
             }
 
@@ -120,10 +108,10 @@ class MembranePotential(Process):
         # proton motive force (PMF), electrical difference (d_V), pH difference (d_pH)
         for state in ['PMF', 'd_V', 'd_pH']:
             schema['membrane'][state] = {
+                '_default': 0.0,
                 '_updater': 'set',
                 '_emit': True,
             }
-
         return schema
 
     def next_update(self, timestep, states):
@@ -142,8 +130,8 @@ class MembranePotential(Process):
         # Membrane potential.
         numerator = 0
         denominator = 0
-        for ion_id, p_ion_id in self.permeability.items():
-            charge = self.charge[ion_id]
+        for ion_id, p_ion_id in self.parameters['permeability_map'].items():
+            charge = self.parameters['charge_map'][ion_id]
             p_ion = self.parameters[p_ion_id]
 
             # ions states
@@ -179,22 +167,20 @@ class MembranePotential(Process):
                 'PMF': PMF}}
 
 def test_mem_potential():
-    initial_parameters = {
-        'initial_state': DEFAULT_STATE,
-        'parameters': DEFAULT_PARAMETERS,
-        'permeability': PERMEABILITY_MAP,
-        'charge': CHARGE_MAP,
-    }
-
     # configure process
-    mp = MembranePotential(initial_parameters)
+    parameters = {}
+    mp = MembranePotential(parameters)
     timeline = [
         (0, {('external', 'Na'): 1}),
-        (100, {('external', 'Na'): 2}),
-        (500, {})]
+        (50, {('external', 'Na'): 10}),
+        (100, {})]
 
     settings = {'timeline': {'timeline': timeline}}
-    return simulate_process_in_experiment(mp, settings)
+    timeseries = simulate_process_in_experiment(mp, settings)
+
+    PMF_timeseries = timeseries['membrane']['PMF']
+    assert PMF_timeseries[-1] > PMF_timeseries[2]
+    return timeseries
 
 
 if __name__ == '__main__':

@@ -148,6 +148,9 @@ def plot_colony_metrics(
             ax.title.set_text(path)
             ax.title.set_fontsize(title_size)
             ax.set_xlim([times[0], times[-1]])
+            ax.xaxis.get_offset_text().set_fontsize(tick_label_size)
+            ax.yaxis.get_offset_text().set_fontsize(tick_label_size)
+            ax.set_xlabel('time (s)', fontsize=title_size)
             # Plot data
             data = path_ts[path]
             if path == NUM_COLONIES_PATH:
