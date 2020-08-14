@@ -19,6 +19,7 @@ from vivarium.processes.meta_division import MetaDivision
 
 
 NAME = 'Tumor'
+TIMESTEP = 60
 
 
 class TumorProcess(Process):
@@ -39,7 +40,7 @@ class TumorProcess(Process):
 
     name = NAME
     defaults = {
-        'time_step': 60,
+        'time_step': TIMESTEP,
         'diameter': 20 * units.um,
         'initial_PDL1n': 1.0, #all start out this way based on data
 
@@ -251,51 +252,6 @@ class TumorCompartment(Generator):
             }
 
 
-def get_PD1_timeline():
-    timeline = [
-        (0, {('neighbors', 'PD1'): 0.0}),
-        (10, {('neighbors', 'PD1'): 5e4}),
-        (20, {('neighbors', 'PD1'): 0.0}),
-        (30, {('neighbors', 'PD1'): 5e4}),
-        (40, {('neighbors', 'PD1'): 5e4}),
-        (50, {('neighbors', 'PD1'): 5e4}),
-        (60, {('neighbors', 'PD1'): 5e4}),
-        (70, {('neighbors', 'PD1'): 5e4}),
-        (80, {('neighbors', 'PD1'): 5e4}),
-        (90, {}),
-    ]
-    return timeline
-
-def get_IFNg_timeline():
-    timeline = [
-        (0, {('boundary', 'IFNg'): 0.0*units.ng/units.mL}),
-        (100, {('boundary', 'IFNg'): 1.0*units.ng/units.mL}),
-        (200, {('boundary', 'IFNg'): 2.0*units.ng/units.mL}),
-        (300, {('boundary', 'IFNg'): 3.0*units.ng/units.mL}),
-        (400, {('boundary', 'IFNg'): 4.0*units.ng/units.mL}),
-        (500, {('boundary', 'IFNg'): 3.0*units.ng/units.mL}),
-        (600, {('boundary', 'IFNg'): 2.0*units.ng/units.mL}),
-        (700, {('boundary', 'IFNg'): 2.0*units.ng/units.mL}),
-        (800, {('boundary', 'IFNg'): 2.0*units.ng/units.mL}),
-        (900, {}),
-    ]
-    return timeline
-
-def get_cytoxic_packets_timeline():
-    timeline = [
-        (0, {('neighbors', 'cytotoxic_packets'): 0.0}),
-        (100, {('neighbors', 'cytotoxic_packets'): 10.0}),
-        (200, {('neighbors', 'cytotoxic_packets'): 20.0}),
-        (300, {('neighbors', 'cytotoxic_packets'): 30.0}),
-        (400, {('neighbors', 'cytotoxic_packets'): 40.0}),
-        (500, {('neighbors', 'cytotoxic_packets'): 70.0}),
-        (600, {('neighbors', 'cytotoxic_packets'): 100.0}),
-        (700, {('neighbors', 'cytotoxic_packets'): 150.0}),
-        (800, {('neighbors', 'cytotoxic_packets'): 160.0}),
-        (900, {}),
-    ]
-    return timeline
-
 def get_combined_timeline():
     timeline = [
         (0, {
@@ -303,47 +259,47 @@ def get_combined_timeline():
             ('boundary', 'IFNg'): 0.0*units.ng/units.mL,
             ('neighbors', 'PD1'): 0.0,
         }),
-        (100, {
+        (10 * TIMESTEP, {
             ('neighbors', 'cytotoxic_packets'): 10.0,
             ('boundary', 'IFNg'): 1.0*units.ng/units.mL,
             ('neighbors', 'PD1'): 5e4,
         }),
-        (200, {
+        (20 * TIMESTEP, {
             ('neighbors', 'cytotoxic_packets'): 20.0,
             ('boundary', 'IFNg'): 2.0 * units.ng / units.mL,
             ('neighbors', 'PD1'): 0.0,
         }),
-        (300, {
+        (30 * TIMESTEP, {
             ('neighbors', 'cytotoxic_packets'): 30.0,
             ('boundary', 'IFNg'): 3.0 * units.ng / units.mL,
             ('neighbors', 'PD1'): 5e4,
         }),
-        (400, {
+        (40 * TIMESTEP, {
             ('neighbors', 'cytotoxic_packets'): 40.0,
             ('boundary', 'IFNg'): 4.0 * units.ng / units.mL,
             ('neighbors', 'PD1'): 5e4,
         }),
-        (500, {
+        (50 * TIMESTEP, {
             ('neighbors', 'cytotoxic_packets'): 70.0,
             ('boundary', 'IFNg'): 3.0 * units.ng / units.mL,
             ('neighbors', 'PD1'): 5e4,
         }),
-        (600, {
+        (60 * TIMESTEP, {
             ('neighbors', 'cytotoxic_packets'): 100.0,
             ('boundary', 'IFNg'): 2.0 * units.ng / units.mL,
             ('neighbors', 'PD1'): 5e4,
         }),
-        (700, {
+        (70 * TIMESTEP, {
             ('neighbors', 'cytotoxic_packets'): 150.0,
             ('boundary', 'IFNg'): 2.0 * units.ng / units.mL,
             ('neighbors', 'PD1'): 5e4,
         }),
-        (800, {
+        (80 * TIMESTEP, {
             ('neighbors', 'cytotoxic_packets'): 160.0,
             ('boundary', 'IFNg'): 2.0 * units.ng / units.mL,
             ('neighbors', 'PD1'): 5e4,
         }),
-        (900, {}),
+        (90 * TIMESTEP, {}),
     ]
     return timeline
 

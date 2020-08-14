@@ -20,6 +20,7 @@ from vivarium.processes.meta_division import MetaDivision
 
 
 NAME = 'T_cell'
+TIMESTEP = 60 * 10  # seconds
 
 
 class TCellProcess(Process):
@@ -35,26 +36,25 @@ class TCellProcess(Process):
 
     name = NAME
     defaults = {
-        'time_step': 60,
+        'time_step': TIMESTEP,
         'diameter': 10 * units.um,
         'initial_PD1n': 0.8,
-        'transition_PD1n_to_PD1p': 0.01,  # probability/min - nearly 95% by 10 days (Wherry 2007)
+        'transition_PD1n_to_PD1p_10days': 0.95,  # nearly 95% by 10 days (Wherry 2007)
 
         # death rates (Petrovas 2007)
-        # TODO - @Eran - how is the timestep functioning - when I times it by the probability is it 1 or
-        # 60? e.g. death probability and others
-        'death_PD1p': 0.085,  # per min 0.7 / 14 hrs
-        'death_PD1n': 0.024,  # 0.2 / 14 hrs
-        'death_PD1p_next_to_PDL1p': 0.11,  # 0.95 / 14 hrs
+        'PDL1_critical_number': 1e4,  # threshold number of PDL1 molecules/cell to trigger death
+        'death_PD1p_14hr': 0.7,  # 0.7 / 14 hrs
+        'death_PD1n_14hr': 0.2,  # 0.2 / 14 hrs
+        'death_PD1p_next_to_PDL1p_14hr': 0.95,  # 0.95 / 14 hrs
 
         # production rates
-        'PD1n_IFNg_production': 1.6e4/60,  # (molecules/cell/min) (Bouchnita 2017)
-        'PD1p_IFNg_production': 0.0,  # (molecules/cell/min)
+        'PD1n_IFNg_production': 1.6e4/3600,  # molecules/cell/second (Bouchnita 2017)
+        'PD1p_IFNg_production': 0.0,  # molecules/cell/second
         'PD1p_PD1_equilibrium': 5e4,  # equilibrium value of PD1 for PD1p (TODO -- get reference)
 
         # division rate (Petrovas 2007)
-        'PD1n_growth': 0.185,  # probability/min - 95% division in 8 hours  # TODO -- scaled from 8 hour period
-        'PD1p_growth': 0.01,  # probability/min - 5% of division in 8 hours
+        'PD1n_growth_8hr': 0.95,  # 95% division in 8 hours
+        'PD1p_growth_8hr': 0.05,  # 5% division in 8 hours
 
         # migration
         'PD1n_migration': 10.0,  # um/minute (Boissonnas 2007)
@@ -71,7 +71,6 @@ class TCellProcess(Process):
 
         # 1:10 fold reduction of PD1+ T cell cytotoxic production (Zelinskyy, 2005)
         'PD1p_cytotoxic_packets': 4,  # number of packets/min to each contacted tumor cell
-
 
         # settings
         'self_path': tuple(),
@@ -91,9 +90,11 @@ class TCellProcess(Process):
             'globals': {
                 'death': {
                     '_default': False,
+                    '_emit': True,
                     '_updater': 'set'},
                 'divide': {
                     '_default': False,
+                    '_emit': True,
                     '_updater': 'set'}
             },
             'internal': {
@@ -142,8 +143,11 @@ class TCellProcess(Process):
 
         # death
         if cell_state == 'PD1n':
-            if random.uniform(0, 1) < self.parameters['death_PD1n'] * timestep:
-                print('PD1n DEATH!')
+            rate = -math.log(1 - self.parameters['death_PD1n_14hr'])  # rate for probability function of time
+            timestep_fraction = timestep / 50400  # for what fraction of 14 hours? (14*60*60 seconds)
+            prob_divide = 1 - math.exp(-rate * timestep_fraction)
+            if random.uniform(0, 1) < prob_divide:
+                print('DEATH PD1- cell!')
                 return {
                     '_delete': {
                         'path': self.self_path
@@ -151,19 +155,24 @@ class TCellProcess(Process):
                 }
 
         elif cell_state == 'PD1p':
-            # TODO - @Eran - need to know how to call just 1 cell?
-            if PDL1 <= 1e4:  # number of molecules/cell
-                if random.uniform(0, 1) < self.parameters['death_PD1p_next_to_PDL1p'] * timestep:
-                    print('PD1p DEATH!')
+            if PDL1 <= self.parameters['PDL1_critical_number']:
+                rate = -math.log(1 - self.parameters['death_PD1p_next_to_PDL1p_14hr'])  # rate for probability function of time
+                timestep_fraction = timestep / 50400  # for what fraction of 14 hours? (14*60*60 seconds)
+                prob_death = 1 - math.exp(-rate * timestep_fraction)
+                if random.uniform(0, 1) < prob_death:
+                    print('DEATH PD1+ cell with PDL1!')
                     return {
                         '_delete': {
                             'path': self.self_path
                         }
                     }
 
-            elif PDL1 > 1e4:  # number of molecules/cell:
-                if random.uniform(0, 1) < self.parameters['death_PD1p'] * timestep:
-                    print('PD1p DEATH!')
+            else:
+                rate = -math.log(1 - self.parameters['death_PD1p_14hr'])  # rate for probability function of time
+                timestep_fraction = timestep / 50400  # for what fraction of 14 hours? (14*60*60 seconds)
+                prob_death = 1 - math.exp(-rate * timestep_fraction)
+                if random.uniform(0, 1) < prob_death:
+                    print('DEATH PD1+ cell without PDL1!')
                     return {
                         '_delete': {
                             'path': self.self_path
@@ -172,10 +181,11 @@ class TCellProcess(Process):
 
         # division
         if cell_state == 'PD1n':
-            rate = -math.log(1 - self.parameters['PD1n_growth'])  # rate for probability function of time
-            prob_divide = 1 - math.exp(-rate * timestep)
+            rate = -math.log(1 - self.parameters['PD1n_growth_8hr'])  # rate for probability function of time
+            timestep_fraction = timestep / 28800  # for what fraction of 8 hours? (8*60*60 seconds)
+            prob_divide = 1 - math.exp(-rate * timestep_fraction)
             if random.uniform(0, 1) < prob_divide:
-                print('PD1n DIVIDE!')
+                print('DIVIDE PD1- cell!')
                 return {
                     'globals': {
                         'divide': True
@@ -183,8 +193,11 @@ class TCellProcess(Process):
                 }
 
         elif cell_state == 'PD1p':
-            if random.uniform(0, 1) < self.parameters['PD1p_growth'] * timestep:
-                print('PD1p DIVIDE!')
+            rate = -math.log(1 - self.parameters['PD1p_growth_8hr'])  # rate for probability function of time
+            timestep_fraction = timestep / 28800  # for what fraction of 8 hours? (8*60*60 seconds)
+            prob_divide = 1 - math.exp(-rate * timestep_fraction)
+            if random.uniform(0, 1) < prob_divide:
+                print('DIVIDE PD1+ cell!')
                 return {
                     'globals': {
                         'divide': True
@@ -193,9 +206,11 @@ class TCellProcess(Process):
 
         # state transition
         new_cell_state = cell_state
-
         if cell_state == 'PD1n':
-            if random.uniform(0, 1) < self.parameters['transition_PD1n_to_PD1p'] * timestep:
+            rate = -math.log(1 - self.parameters['transition_PD1n_to_PD1p_10days'])  # rate for probability function of time
+            timestep_fraction = timestep / 864000  # for what fraction of 10 days? (60*60*24*10 seconds)
+            prob_transition = 1 - math.exp(-rate * timestep_fraction)
+            if random.uniform(0, 1) < prob_transition:
                 new_cell_state = 'PD1p'
         elif cell_state == 'PD1p':
             pass
@@ -326,47 +341,47 @@ def get_timeline():
             ('neighbors', 'PDL1'): 0.0,
             ('neighbors', 'MHCI'): 0.0,
         }),
-        (100, {
+        (10 * TIMESTEP, {
             ('neighbors', 'PDL1'): 0.0,
             ('neighbors', 'MHCI'): 0.0,
         }),
-        (200, {
+        (20 * TIMESTEP, {
             ('neighbors', 'PDL1'): 0.0,
             ('neighbors', 'MHCI'): 0.0,
         }),
-        (300, {
+        (30 * TIMESTEP, {
             ('neighbors', 'PDL1'): 5e5,
             ('neighbors', 'MHCI'): 5e5,
         }),
-        (400, {
+        (40 * TIMESTEP, {
             ('neighbors', 'PDL1'): 5e5,
             ('neighbors', 'MHCI'): 5e5,
         }),
-        (500, {
+        (50 * TIMESTEP, {
             ('neighbors', 'PDL1'): 5e5,
             ('neighbors', 'MHCI'): 5e5,
         }),
-        (600, {
+        (60 * TIMESTEP, {
             ('neighbors', 'PDL1'): 5e5,
             ('neighbors', 'MHCI'): 5e5,
         }),
-        (700, {
+        (70 * TIMESTEP, {
             ('neighbors', 'PDL1'): 0.0,
             ('neighbors', 'MHCI'): 0.0,
         }),
-        (800, {
+        (80 * TIMESTEP, {
             ('neighbors', 'PDL1'): 0.0,
             ('neighbors', 'MHCI'): 0.0,
         }),
-        (900, {
+        (90 * TIMESTEP, {
             ('neighbors', 'PDL1'): 0.0,
             ('neighbors', 'MHCI'): 0.0,
         }),
-        (1000, {
+        (100 * TIMESTEP, {
             ('neighbors', 'PDL1'): 5e5,
             ('neighbors', 'MHCI'): 5e5,
         }),
-        (1100, {}),
+        (110 * TIMESTEP, {}),
     ]
     return timeline
 
