@@ -16,10 +16,17 @@ from vivarium.core.composition import (
 )
 from vivarium.core.process import Generator
 from vivarium.processes.meta_division import MetaDivision
-
+import math
 
 NAME = 'Tumor'
 TIMESTEP = 60
+
+
+def get_probability_timestep(probability_parameter, timescale, timestep):
+    ''' transition probability as function of time '''
+    rate = -math.log(1 - probability_parameter)
+    timestep_fraction = timestep / timescale
+    return 1 - math.exp(-rate * timestep_fraction)
 
 
 class TumorProcess(Process):
@@ -45,17 +52,17 @@ class TumorProcess(Process):
         'initial_PDL1n': 1.0, #all start out this way based on data
 
         # death rates
-        'death_apoptosis': 1e-4,  # negligible compared to growth/killing 5 day mean life span (Gong, 2017)
+        'death_apoptosis': 0.95,  # negligible compared to growth/killing 0.95 by 5 day (Gong, 2017)
 
         # division rate
-        'PDL1n_growth': 7e-4,  # probability of division - 1/24 hr (Eden, 2011)
+        'PDL1n_growth': 0.95,  # probability of division 24 hr (Eden, 2011)
         #'PDL1p_growth': 0,  # Cells arrested - do not divide (data, Thibaut 2020, Hoekstra 2020)
 
         # migration
         'tumor_migration': 0.25,  # um/minute (Weigelin 2012)
         #TODO - @Eran - how to manage migration with square grids if migration is smaller than grid?
 
-        #membrane equillibrium amounts #TODO
+        #membrane equillibrium amounts
         'PDL1p_PDL1_equilibrium': 5e4, #TODO ref
         'PDL1p_MHCI_equilibrium': 5e4, #TODO ref
 
@@ -77,12 +84,12 @@ class TumorProcess(Process):
             'globals': {
                 'death': {
                     '_default': False,
-                    '_updater': 'set'
-                },
+                    '_emit': True,
+                    '_updater': 'set'},
                 'divide': {
                     '_default': False,
-                    '_updater': 'set'
-                }
+                    '_emit': True,
+                    '_updater': 'set'}
             },
             'internal': {
                 'cell_state': {
@@ -98,7 +105,7 @@ class TumorProcess(Process):
                 'PDL1': {
                     '_default': 0,
                     '_emit': True,
-                    '_updater': 'accumulate',
+                    '_updater': 'set',
                 },  # membrane protein, promotes T cell exhuastion and deactivation with PD1
                 'MHCI': {
                     '_default': 0,
@@ -109,15 +116,18 @@ class TumorProcess(Process):
                     '_default': 0 * units.ng/units.mL,
                     '_emit': True,
                 },  # cytokine changes tumor phenotype to MHCI+ and PDL1+
+                #TODO @Eran - do we need to emit IFNg here since it is not produced by tumors?
                 'IFNg_timer': {
                     '_default': 0,
+                    '_emit': True,
                     '_updater': 'accumulate',
                 },  # cytokine changes tumor phenotype
             },
             'neighbors': {
                 'PD1': {
                     '_default': 0,
-                    '_emit': True,},
+                    '_emit': True,
+                },
                 'cytotoxic_packets': {
                     '_default': 0,
                     '_emit': True,
@@ -132,7 +142,12 @@ class TumorProcess(Process):
         IFNg_timer = states['boundary']['IFNg_timer']
 
         # death by apoptosis
-        if random.uniform(0, 1) < self.parameters['death_apoptosis'] * timestep:
+
+        prob_death = get_probability_timestep(
+            self.parameters['death_apoptosis'],
+            432000,  # 5 days (5*24*60*60 seconds)
+            timestep)
+        if random.uniform(0, 1) < prob_death:
             print('Apoptosis!')
             return {
                 '_delete': {
@@ -145,7 +160,7 @@ class TumorProcess(Process):
         # death by cytotoxic packets from T cells
         # should take about 120 min from start of T cell contact and about 2-3 contacts
         # need to multiply total number by 10 because multiplied T cell number by this amount
-        #number needed for death refs: (Verret, 1987), (Betts, 2004), (Zhang, 2006)
+        # number needed for death refs: (Verret, 1987), (Betts, 2004), (Zhang, 2006)
         if cytotoxic_packets >= 128*10:
             print('Tcell_death!')
             return {
@@ -157,13 +172,19 @@ class TumorProcess(Process):
 
         # division
         if cell_state == 'PDL1n':
-            if random.uniform(0, 1) < self.parameters['PDL1n_growth'] * timestep:
+
+            prob_divide = get_probability_timestep(
+                self.parameters['PDL1n_growth'],
+                86400,  # 24 hours (24*60*60 seconds)
+                timestep)
+            if random.uniform(0, 1) < prob_divide:
                 print('PDL1n DIVIDE!')
                 return {
                     'globals': {
                         'divide': True
                     }
                 }
+
         elif cell_state == 'PDL1p':
             pass
 
@@ -172,8 +193,15 @@ class TumorProcess(Process):
         new_cell_state = cell_state
         if cell_state == 'PDL1n':
             if IFNg >= 1*units.ng/units.mL:
-                if IFNg_timer > 6*60*60:
+                if IFNg_timer > 6*60*60: # Need at least 6 hours for state transition to occur
+                    #print('PDL1n become PDL1p!')
                     new_cell_state = 'PDL1p'
+                    #TODO - @Eran - how does this get updated in the simulation?
+                    # I see that this gets printed but the cell state gets reversed
+                    # I tried returning this in update but did not work
+                    # Does it not update the next cell in simulation with previous?
+                    # This also does not work for MHCI/PDL1 - not updated in simulation
+
                 else:
                     update.update({
                         'boundary': {
@@ -252,60 +280,65 @@ class TumorCompartment(Generator):
             }
 
 
-def get_combined_timeline():
+def get_combined_timeline(
+        total_time=600000,
+        number_steps=10):
+
+    interval = total_time/(number_steps*TIMESTEP)
+
     timeline = [
-        (0, {
+        (interval * 0 * TIMESTEP, {
             ('neighbors', 'cytotoxic_packets'): 0.0,
             ('boundary', 'IFNg'): 0.0*units.ng/units.mL,
             ('neighbors', 'PD1'): 0.0,
         }),
-        (10 * TIMESTEP, {
+        (interval * 1 * TIMESTEP, {
             ('neighbors', 'cytotoxic_packets'): 10.0,
             ('boundary', 'IFNg'): 1.0*units.ng/units.mL,
             ('neighbors', 'PD1'): 5e4,
         }),
-        (20 * TIMESTEP, {
+        (interval * 2 * TIMESTEP, {
             ('neighbors', 'cytotoxic_packets'): 20.0,
             ('boundary', 'IFNg'): 2.0 * units.ng / units.mL,
             ('neighbors', 'PD1'): 0.0,
         }),
-        (30 * TIMESTEP, {
+        (interval * 3 * TIMESTEP, {
             ('neighbors', 'cytotoxic_packets'): 30.0,
             ('boundary', 'IFNg'): 3.0 * units.ng / units.mL,
             ('neighbors', 'PD1'): 5e4,
         }),
-        (40 * TIMESTEP, {
+        (interval * 4 * TIMESTEP, {
             ('neighbors', 'cytotoxic_packets'): 40.0,
             ('boundary', 'IFNg'): 4.0 * units.ng / units.mL,
             ('neighbors', 'PD1'): 5e4,
         }),
-        (50 * TIMESTEP, {
+        (interval * 5 * TIMESTEP, {
             ('neighbors', 'cytotoxic_packets'): 70.0,
             ('boundary', 'IFNg'): 3.0 * units.ng / units.mL,
             ('neighbors', 'PD1'): 5e4,
         }),
-        (60 * TIMESTEP, {
+        (interval * 6 * TIMESTEP, {
             ('neighbors', 'cytotoxic_packets'): 100.0,
             ('boundary', 'IFNg'): 2.0 * units.ng / units.mL,
             ('neighbors', 'PD1'): 5e4,
         }),
-        (70 * TIMESTEP, {
+        (interval * 7 * TIMESTEP, {
             ('neighbors', 'cytotoxic_packets'): 150.0,
             ('boundary', 'IFNg'): 2.0 * units.ng / units.mL,
             ('neighbors', 'PD1'): 5e4,
         }),
-        (80 * TIMESTEP, {
+        (interval * 8 * TIMESTEP, {
             ('neighbors', 'cytotoxic_packets'): 160.0,
             ('boundary', 'IFNg'): 2.0 * units.ng / units.mL,
             ('neighbors', 'PD1'): 5e4,
         }),
-        (90 * TIMESTEP, {}),
+        (interval * 9 * TIMESTEP, {}),
     ]
     return timeline
 
 
 def test_single_Tumor(
-        total_time=1200,
+        total_time=43200,
         timeline=None,
         out_dir='out'):
 
@@ -338,8 +371,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     no_args = (len(sys.argv) == 1)
 
-    #TODO - @Eran is time always in seconds?
-    total_time = 12000
+    total_time = 43200
     if args.single:
         test_single_Tumor(
             total_time=total_time,

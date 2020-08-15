@@ -17,10 +17,10 @@ from vivarium.core.composition import (
 )
 from vivarium.core.process import Generator
 from vivarium.processes.meta_division import MetaDivision
-
+import math
 
 NAME = 'T_cell'
-TIMESTEP = 60 * 10  # seconds
+TIMESTEP = 60 # seconds
 
 
 def get_probability_timestep(probability_parameter, timescale, timestep):
@@ -56,7 +56,9 @@ class TCellProcess(Process):
         'death_PD1p_next_to_PDL1p_14hr': 0.95,  # 0.95 / 14 hrs
 
         # production rates
-        'PD1n_IFNg_production': 1.6e4/3600,  # molecules/cell/second (Bouchnita 2017)
+        'PD1n_IFNg_production': 1.62e4/3600,  # molecules/cell/second (Bouchnita 2017)
+        # TODO @Eran - the other IFNg is in ng/mL how does this production get converted?
+
         'PD1p_IFNg_production': 0.0,  # molecules/cell/second
         'PD1p_PD1_equilibrium': 5e4,  # equilibrium value of PD1 for PD1p (TODO -- get reference)
 
@@ -164,7 +166,7 @@ class TCellProcess(Process):
                 }
 
         elif cell_state == 'PD1p':
-            if PDL1 <= self.parameters['PDL1_critical_number']:
+            if PDL1 >= self.parameters['PDL1_critical_number']:
                 prob_death = get_probability_timestep(
                     self.parameters['death_PD1p_next_to_PDL1p_14hr'],
                     50400,  # 14 hours (14*60*60 seconds)
@@ -247,10 +249,10 @@ class TCellProcess(Process):
             # check conditional 4 fold reduction
             if MHCI >= 1e4: #molecules/neighbor cell
 
-                # Max production happens for PD1- T cells in contact with MHCI+ tumor
+                # Max production for both happens for PD1- T cells in contact with MHCI+ tumor
                 cytotoxic_packets = self.parameters['PD1n_cytotoxic_packets'] * timestep
 
-                # produce IFNg  # rates are determined above based on 1 minute
+                # produce IFNg  # rates are determined above
                 IFNg = self.parameters['PD1n_IFNg_production'] * timestep
 
             elif MHCI < 1e4:  # molecules/neighbor cell
@@ -259,7 +261,7 @@ class TCellProcess(Process):
                 # (Bohm, 1998), (Merritt, 2003)
                 cytotoxic_packets = self.parameters['PD1n_cytotoxic_packets'] / 4 * timestep
 
-                # produce IFNg  # rates are determined above based on 1 minute
+                # produce IFNg  # rates are determined above
                 IFNg = self.parameters['PD1n_IFNg_production'] / 4 * timestep
 
             # target behavior 3 contacts required for cell death, 1-4 cells killed/day
@@ -272,10 +274,10 @@ class TCellProcess(Process):
 
             if MHCI >= 1e4:  # molecules/neighbor cell
 
-                # Max production happens for PD1- T cells in contact with MHCI+ tumor
+                # Max production for both happens for T cells in contact with MHCI+ tumor
                 cytotoxic_packets = self.parameters['PD1p_cytotoxic_packets'] * timestep
 
-                # produce IFNg  # rates are determined above based on 1 minute
+                # produce IFNg  # rates are determined above
                 IFNg = self.parameters['PD1p_IFNg_production'] * timestep
 
             elif MHCI < 1e4:  # molecules/neighbor cell
@@ -284,7 +286,7 @@ class TCellProcess(Process):
                 # (Bohm, 1998), (Merritt, 2003)
                 cytotoxic_packets = self.parameters['PD1p_cytotoxic_packets'] / 4 * timestep
 
-                # produce IFNg  # rates are determined above based on 1 minute
+                # produce IFNg  # rates are determined above
                 IFNg = self.parameters['PD1p_IFNg_production'] / 4 * timestep
 
             # target behavior 3 contacts required for cell death, 1-4 cells killed/day
@@ -349,60 +351,56 @@ class TCellCompartment(Generator):
                 'cells': self.agents_path},
             }
 
-def get_timeline():
+def get_timeline(
+        total_time=600000,
+        number_steps=10):
+
+    interval = total_time / (number_steps * TIMESTEP)
+
     timeline = [
-        (0, {
+        (interval * 0 * TIMESTEP, {
             ('neighbors', 'PDL1'): 0.0,
             ('neighbors', 'MHCI'): 0.0,
         }),
-        (10 * TIMESTEP, {
+        (interval * 1 * TIMESTEP, {
             ('neighbors', 'PDL1'): 0.0,
             ('neighbors', 'MHCI'): 0.0,
         }),
-        (20 * TIMESTEP, {
+        (interval * 2 * TIMESTEP, {
             ('neighbors', 'PDL1'): 0.0,
             ('neighbors', 'MHCI'): 0.0,
         }),
-        (30 * TIMESTEP, {
+        (interval * 3 * TIMESTEP, {
             ('neighbors', 'PDL1'): 5e5,
             ('neighbors', 'MHCI'): 5e5,
         }),
-        (40 * TIMESTEP, {
+        (interval * 4 * TIMESTEP, {
             ('neighbors', 'PDL1'): 5e5,
             ('neighbors', 'MHCI'): 5e5,
         }),
-        (50 * TIMESTEP, {
+        (interval * 5 * TIMESTEP, {
             ('neighbors', 'PDL1'): 5e5,
             ('neighbors', 'MHCI'): 5e5,
         }),
-        (60 * TIMESTEP, {
+        (interval * 6 * TIMESTEP, {
             ('neighbors', 'PDL1'): 5e5,
             ('neighbors', 'MHCI'): 5e5,
         }),
-        (70 * TIMESTEP, {
+        (interval * 7 * TIMESTEP, {
             ('neighbors', 'PDL1'): 0.0,
             ('neighbors', 'MHCI'): 0.0,
         }),
-        (80 * TIMESTEP, {
-            ('neighbors', 'PDL1'): 0.0,
-            ('neighbors', 'MHCI'): 0.0,
-        }),
-        (90 * TIMESTEP, {
-            ('neighbors', 'PDL1'): 0.0,
-            ('neighbors', 'MHCI'): 0.0,
-        }),
-        (100 * TIMESTEP, {
+        (interval * 8 * TIMESTEP, {
             ('neighbors', 'PDL1'): 5e5,
             ('neighbors', 'MHCI'): 5e5,
         }),
-        (110 * TIMESTEP, {}),
+        (interval * 9 * TIMESTEP, {}),
     ]
     return timeline
 
 
-#TODO - @Eran - how do I get more in the output like graphs/data?
 def test_single_t_cell(
-    total_time=1200,
+    total_time=43200,
     timeline=None,
     out_dir='out'):
 
@@ -436,7 +434,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     no_args = (len(sys.argv) == 1)
 
-    total_time = 12000
+    total_time = 43200
     if args.single:
         test_single_t_cell(
             total_time=total_time,
