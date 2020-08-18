@@ -22,6 +22,11 @@ class CellEnvironmentDiffusionFicks(Process):
             }
         },
         'default_default': 0,
+        # This is an order-of-magnitude estimate from Nagano, K., &
+        # Nikaido, H. (2009). Kinetic behavior of the major multidrug
+        # efflux pump AcrB of Escherichia coli. Proceedings of the
+        # National Academy of Sciences, 106(14), 5854–5858.
+        # https://doi.org/10.1073/pnas.0901695106
         'permeability': 1e-6 * units.cm / units.sec,
         'surface_area_mass_ratio': 132 * units.cm**2 / units.mg,
         'volume_variable': 'volume',

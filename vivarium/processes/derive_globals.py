@@ -59,6 +59,10 @@ class DeriveGlobals(Deriver):
     defaults = {
         'width': 1,  # um
         'initial_mass': 1339 * units.fg,  # wet mass in fg
+        # Source: Wülfing, C., & Plückthun, A. (1994). Protein folding
+        # in the periplasm of Escherichia coli. Molecular Microbiology,
+        # 12(5), 685–692.
+        # https://doi.org/10.1111/j.1365-2958.1994.tb01056.x
         'periplasm_volume_fraction': 0.3,
     }
 
