@@ -59,6 +59,11 @@ class DeriveGlobals(Deriver):
     defaults = {
         'width': 1,  # um
         'initial_mass': 1339 * units.fg,  # wet mass in fg
+        # Source: Wülfing, C., & Plückthun, A. (1994). Protein folding
+        # in the periplasm of Escherichia coli. Molecular Microbiology,
+        # 12(5), 685–692.
+        # https://doi.org/10.1111/j.1365-2958.1994.tb01056.x
+        'periplasm_volume_fraction': 0.3,
     }
 
     def __init__(self, initial_parameters=None):
@@ -76,8 +81,12 @@ class DeriveGlobals(Deriver):
         super(DeriveGlobals, self).__init__(parameters)
 
     def ports_schema(self):
-        set_states = ['volume', 'mmol_to_counts', 'length', 'surface_area']
-        split_divide = ['volume', 'length', 'surface_area']
+        set_states = [
+            'volume', 'mmol_to_counts', 'length', 'surface_area',
+            'periplasm_volume',
+        ]
+        split_divide = [
+            'volume', 'length', 'surface_area', 'periplasm_volume']
         emit = {'global': ['volume', 'width', 'length', 'surface_area']}
 
         # default state
@@ -87,6 +96,8 @@ class DeriveGlobals(Deriver):
         mmol_to_counts = (AVOGADRO * volume).to('L/mmol')
         length = length_from_volume(volume.magnitude, self.width)
         surface_area = surface_area_from_length(length, self.width)
+        periplasm_volume = volume * self.parameters[
+            'periplasm_volume_fraction']
 
         default_state = {
             'global': {
@@ -96,7 +107,10 @@ class DeriveGlobals(Deriver):
                 'density': density,
                 'width': self.width,
                 'length': length,
-                'surface_area': surface_area}}
+                'surface_area': surface_area,
+                'periplasm_volume': periplasm_volume,
+            },
+        }
 
         schema = {}
         for port, states in default_state.items():
@@ -124,13 +138,18 @@ class DeriveGlobals(Deriver):
         mmol_to_counts = (AVOGADRO * volume).to('L/mmol')
         length = length_from_volume(volume.magnitude, width)
         surface_area = surface_area_from_length(length, width)
+        periplasm_volume = volume * self.parameters[
+            'periplasm_volume_fraction']
 
         return {
             'global': {
                 'volume': volume.to('fL'),
                 'mmol_to_counts': mmol_to_counts,
                 'length': length,
-                'surface_area': surface_area}}
+                'surface_area': surface_area,
+                'periplasm_volume': periplasm_volume,
+            },
+        }
 
 def get_default_global_state():
     mass = 1339 * units.fg  # wet mass in fg
