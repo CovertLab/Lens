@@ -36,6 +36,7 @@ setup(
     entry_points={
         'console_scripts': [
             'vivarium.analysis.analyze=vivarium.analysis.analyze:run',
+            'vivarium.analysis.expression_survival_dotplot=vivarium.analysis.expression_survival_dotplot:run',
             'vivarium.environment.boot=vivarium.environment.boot:run',
             'vivarium.environment.control=vivarium.environment.control:run',
             'vivarium.compartments=vivarium.compartments:run'
