@@ -124,7 +124,7 @@ def agent_environment_experiment(
                     agent_id: initial_agent_state
                     for agent_id in agent_ids})
 
-    if 'agents' in initial_state:
+    if 'agents' in initial_state and 'diffusion' in environment_config['config']:
         environment_config[
             'config']['diffusion']['agents'] = initial_state['agents']
 
@@ -1191,6 +1191,9 @@ class ToyCompartment(Generator):
     a toy compartment for testing
 
     '''
+    defaults = {
+        'external_path': ( 'external',)
+    }
     def __init__(self, config):
         super(ToyCompartment, self).__init__(config)
 
@@ -1202,24 +1205,45 @@ class ToyCompartment(Generator):
             'death': ToyDeath({'targets': [
                 'metabolism',
                 'transport']}),
-            'external_volume': ToyDeriveVolume(),
+            'periplasm_volume': ToyDeriveVolume(),
             'internal_volume': ToyDeriveVolume()
         }
 
     def generate_topology(self, config):
+        external_path = config['external_path']
         return{
             'metabolism': {
                 'pool': ('cytoplasm',)},
             'transport': {
-                'external': ('periplasm',),
+                'external': external_path,
                 'internal': ('cytoplasm',)},
             'death': {
                 'global': tuple(),
                 'compartment': ('cytoplasm',)},
-            'external_volume': {
+            'periplasm_volume': {
                 'compartment': ('periplasm',)},
             'internal_volume': {
                 'compartment': ('cytoplasm',)}}
+
+def ToyEnvironment(Deriver):
+    name = 'toy_environment'
+    defaults = {}
+    def __init__(self, parameters={}):
+        super(ToyEnvironment, self).__init__(parameters)
+
+    def ports_schema(self):
+        return {
+            'sub_compartments': {
+                '*': {
+                    'state': {
+                        '_default': 0.0}}}}
+
+    def next_update(self, timestep, states):
+
+        import ipdb; ipdb.set_trace()
+
+        return {}
+
 
 
 def test_compartment():
