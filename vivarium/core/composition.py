@@ -633,6 +633,8 @@ def plot_agents_multigen(data, settings={}, out_dir='out', filename='agents'):
               with all the same value get removed
             * **skip_paths** (:py:class:`list`): entire path, including subpaths
               that won't be plotted
+            * **include_paths** (:py:class:`list`): list of full paths
+              to include. Overridden by skip_paths.
 
     TODO -- add legend with agent color
     '''
@@ -642,6 +644,7 @@ def plot_agents_multigen(data, settings={}, out_dir='out', filename='agents'):
     remove_zeros = settings.get('remove_zeros', False)
     remove_flat = settings.get('remove_flat', False)
     skip_paths = settings.get('skip_paths', [])
+    include_paths = settings.get('include_paths', None)
     title_size = settings.get('title_size', 16)
     tick_label_size = settings.get('tick_label_size', 12)
     time_vec = list(data.keys())
@@ -652,10 +655,13 @@ def plot_agents_multigen(data, settings={}, out_dir='out', filename='agents'):
     # is representative of later agents
     initial_agents = data[time_vec[0]][agents_key]
     # make the set of paths
-    port_schema_paths = set()
-    for agent_id, agent_data in initial_agents.items():
-        path_list = get_path_list_from_dict(agent_data)
-        port_schema_paths.update(path_list)
+    if include_paths is None:
+        port_schema_paths = set()
+        for agent_id, agent_data in initial_agents.items():
+            path_list = get_path_list_from_dict(agent_data)
+            port_schema_paths.update(path_list)
+    else:
+        port_schema_paths = set(include_paths)
     # make set of paths to remove
     remove_paths = set()
     for path, series in timeseries.items():
