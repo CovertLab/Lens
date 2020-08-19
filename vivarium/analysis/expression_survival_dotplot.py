@@ -36,10 +36,15 @@ def plot_expression_survival(
                 lst.append(value)
             if get_in(agent_data, PATH_TO_DEAD, False):
                 die.add(agent)
+            # Only count values when cell is alive
+            elif value is not None:
+                lst.append(value)
 
     live_averages = []
     dead_averages = []
     for agent, levels in expression_levels.items():
+        if not levels:
+            continue
         if agent in die:
             dead_averages.append(np.mean(levels))
         else:
