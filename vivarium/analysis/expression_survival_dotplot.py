@@ -45,7 +45,7 @@ def plot_expression_survival(
         else:
             live_averages.append(np.mean(levels))
 
-    fig, ax = plt.subplots(figsize=(6, 1))
+    fig, ax = plt.subplots(figsize=(6, 2))
     ax.scatter(
         live_averages, np.random.random(len(live_averages)),
         label='Survive', color=LIVE_COLOR, alpha=ALPHA,
@@ -54,8 +54,9 @@ def plot_expression_survival(
         dead_averages, np.random.random(len(dead_averages)),
         label='Die', color=DEAD_COLOR, alpha=ALPHA,
     )
+    ax.legend()
     ax.set_xlabel(xlabel)
-    ax.set_ylim([0, 1])
+    ax.set_ylim([0, 1.25])
     ax.get_yaxis().set_visible(False)
     for spine_name in ('left', 'top', 'right'):
         ax.spines[spine_name].set_visible(False)
