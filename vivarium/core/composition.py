@@ -67,6 +67,17 @@ def make_agents(agent_ids, compartment, config=None):
         'topology': topology}
 
 
+def embedded_compartment_experiment(
+        hierarchy=None,
+):
+    import ipdb; ipdb.set_trace()
+
+    # TODO -- embed the compartments, return experiment
+
+
+
+
+
 def agent_environment_experiment(
         agents_config=None,
         environment_config=None,

@@ -12,6 +12,7 @@ from arpeggio import (
 
 from vivarium.core.experiment import timestamp
 from vivarium.core.composition import (
+    embedded_compartment_experiment,
     agent_environment_experiment,
     simulate_experiment,
     plot_agents_multigen,
@@ -52,16 +53,13 @@ class Control():
     ):
         if name is None:
             name = timestamp()
-
         self.compartment_library = compartment_library
         self.experiment_library = experiment_library
-
         self.args = self.add_arguments()
 
         # TODO experiment settings
         # TODO plot settings
 
-        # workflow out_dir
         self.out_dir = os.path.join(EXPERIMENT_OUT_DIR, name)
         make_dir(self.out_dir)
 
@@ -104,35 +102,19 @@ class Control():
         return vars(parser.parse_args())
 
     def execute(self):
-
-        import ipdb;
-        ipdb.set_trace()
-
         if self.args['experiment']:
-            # make a directory for this experiment
             experiment_name = self.args['experiment']
-            control_out_dir = os.path.join(self.out_dir, experiment_name)
-            make_dir(control_out_dir)
+            experiment_out_dir = os.path.join(self.out_dir, experiment_name)
+            make_dir(experiment_out_dir)
             experiment_config = self.experiment_library[experiment_name]
-
-            # TODO -- make the experiment
-
-        # agent configuration
-        agent_config = agents_library[agent_type]
-        agent_config['number'] = n_agents
-        agents_config = [
-            agent_config,
-        ]
-
-        # environment configuration
-        environment_config = environment_library[environment_type]
+            hierarchy = experiment_config['hierarchy']
+            simulation_settings = experiment_config['simulation_settings']
 
         # simulate
         data = self.run_experiment(
-            agents_config=agents_config,
-            environment_config=environment_config,
-            initial_state=initial_state,
-            initial_agent_state=initial_agent_state,
+            hierarchy=hierarchy,
+            # initial_state=initial_state,
+            # initial_agent_state=initial_agent_state,
             simulation_settings=simulation_settings,
         )
 
@@ -148,10 +130,11 @@ class Control():
 
     def run_experiment(
             self,
-            agents_config=None,
-            environment_config=None,
+            # agents_config=None,
+            # environment_config=None,
             initial_state=None,
-            initial_agent_state=None,
+            # initial_agent_state=None,
+            hierarchy=None,
             simulation_settings=None,
             experiment_settings=None
     ):
@@ -159,32 +142,40 @@ class Control():
             experiment_settings = {}
         if initial_state is None:
             initial_state = {}
-        if initial_agent_state is None:
-            initial_agent_state = {}
+        # if initial_agent_state is None:
+        #     initial_agent_state = {}
 
-        # agents ids
-        agent_ids = []
-        for config in agents_config:
-            number = config['number']
-            if 'name' in config:
-                name = config['name']
-                if number > 1:
-                    new_agent_ids = [name + '_' + str(num) for num in range(number)]
-                else:
-                    new_agent_ids = [name]
-            else:
-                new_agent_ids = [str(uuid.uuid1()) for num in range(number)]
-            config['ids'] = new_agent_ids
-            agent_ids.extend(new_agent_ids)
 
         # make the experiment
-        experiment = agent_environment_experiment(
-            agents_config=agents_config,
-            environment_config=environment_config,
-            initial_state=initial_state,
-            initial_agent_state=initial_agent_state,
-            settings=experiment_settings,
-        )
+        experiment = embedded_compartment_experiment(hierarchy)
+
+
+
+
+
+
+        # # agents ids
+        # agent_ids = []
+        # for config in agents_config:
+        #     number = config['number']
+        #     if 'name' in config:
+        #         name = config['name']
+        #         if number > 1:
+        #             new_agent_ids = [name + '_' + str(num) for num in range(number)]
+        #         else:
+        #             new_agent_ids = [name]
+        #     else:
+        #         new_agent_ids = [str(uuid.uuid1()) for num in range(number)]
+        #     config['ids'] = new_agent_ids
+        #     agent_ids.extend(new_agent_ids)
+
+        # experiment = agent_environment_experiment(
+        #     agents_config=agents_config,
+        #     environment_config=environment_config,
+        #     initial_state=initial_state,
+        #     initial_agent_state=initial_agent_state,
+        #     settings=experiment_settings,
+        # )
 
         # simulate
         settings = {
@@ -228,10 +219,30 @@ def run_control_test():
             'config': {}
         }
     }
+    experiment_library = {
+        'toy': {
+            'hierarchy': {
+                'environment': {
+                    'inner': [
+                        {
+                            'number': 2,
+                            'name': 'agent',
+                        }
+                    ],
+                    'topology': {
+                        'agents': {'agent'}
+                    }}  # TODO -- is this the best way to do embedded of agent within universe?
+            },
+            'simulation_settings': {
+                'total_time': 30,
+                'emit_step': 0.1,
+            },
+        },
+    }
 
     workflow = Control(
         compartment_library=compartment_library,
-        # experiment_library=experiment_library
+        experiment_library=experiment_library
         )
 
     # TODO add an experiment structure? with agent in environment
