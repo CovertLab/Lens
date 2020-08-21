@@ -239,6 +239,8 @@ def plot_snapshots(data, plot_config):
             * **dead_color** (:py:class:`list` of 3 :py:class:`float`s):
               Color for dead cells in HSV. Defaults to [0, 0, 0], which
               is black.
+            * **default_font_size** (:py:class:`float`): Font size for
+              titles and axis labels.
     '''
     check_plt_backend()
 
@@ -250,6 +252,7 @@ def plot_snapshots(data, plot_config):
     skip_fields = plot_config.get('skip_fields', [])
     include_fields = plot_config.get('include_fields', None)
     field_label_size = plot_config.get('field_label_size', 20)
+    default_font_size = plot_config.get('default_font_size', 36)
     dead_color = plot_config.get('dead_color', [0, 0, 0])
 
     # get data
@@ -313,7 +316,7 @@ def plot_snapshots(data, plot_config):
     fig = plt.figure(figsize=figsize, dpi=min(max_dpi, 100))
     grid = plt.GridSpec(n_rows, n_cols, wspace=0.2, hspace=0.2)
     original_fontsize = plt.rcParams['font.size']
-    plt.rcParams.update({'font.size': 36})
+    plt.rcParams.update({'font.size': default_font_size})
 
     # plot snapshot data in each subsequent column
     for col_idx, (time_idx, time) in enumerate(zip(time_indices, snapshot_times)):
@@ -429,6 +432,8 @@ def plot_tags(data, plot_config):
               ``black`` by default
             * **tag_label_size** (:py:class:`float`): The font size for
               the tag name label
+            * **default_font_size** (:py:class:`float`): Font size for
+              titles and axis labels.
     '''
     check_plt_backend()
 
@@ -440,6 +445,7 @@ def plot_tags(data, plot_config):
     tagged_molecules = plot_config['tagged_molecules']
     tag_path_name_map = plot_config.get('tag_path_name_map', {})
     tag_label_size = plot_config.get('tag_label_size', 20)
+    default_font_size = plot_config.get('default_font_size', 36)
 
     if tagged_molecules == []:
         raise ValueError('At least one molecule must be tagged.')
@@ -488,7 +494,7 @@ def plot_tags(data, plot_config):
     fig = plt.figure(figsize=figsize, dpi=min(max_dpi, 100))
     grid = plt.GridSpec(n_rows, n_cols, wspace=0.2, hspace=0.2)
     original_fontsize = plt.rcParams['font.size']
-    plt.rcParams.update({'font.size': 36})
+    plt.rcParams.update({'font.size': default_font_size})
 
     # plot tags
     for row_idx, tag_id in enumerate(tag_ranges.keys()):
