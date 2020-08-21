@@ -744,7 +744,7 @@ def plot_agents_multigen(data, settings={}, out_dir='out', filename='agents'):
             ax.title.set_text(titles_map.get(path, path))
             ax.title.set_fontsize(title_size)
             if path in ylabels_map:
-                ax.set_ylabel(ylabels_map[path])
+                ax.set_ylabel(ylabels_map[path], fontsize=title_size)
             ax.set_xlim([time_vec[0], time_vec[-1]])
             ax.xaxis.get_offset_text().set_fontsize(tick_label_size)
             ax.yaxis.get_offset_text().set_fontsize(tick_label_size)
