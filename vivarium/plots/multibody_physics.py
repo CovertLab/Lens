@@ -312,6 +312,7 @@ def plot_snapshots(data, plot_config):
     max_dpi = min([2**16 // dim for dim in figsize]) - 1
     fig = plt.figure(figsize=figsize, dpi=min(max_dpi, 100))
     grid = plt.GridSpec(n_rows, n_cols, wspace=0.2, hspace=0.2)
+    original_fontsize = plt.rcParams['font.size']
     plt.rcParams.update({'font.size': 36})
 
     # plot snapshot data in each subsequent column
@@ -372,6 +373,7 @@ def plot_snapshots(data, plot_config):
     fig.subplots_adjust(wspace=0.7, hspace=0.1)
     fig.savefig(fig_path, bbox_inches='tight')
     plt.close(fig)
+    plt.rcParams.update({'font.size': original_fontsize})
 
 def get_fluorescent_color(baseline_hsv, tag_color, intensity):
     # move color towards bright fluoresence color when intensity = 1
@@ -485,6 +487,7 @@ def plot_tags(data, plot_config):
     max_dpi = min([2**16 // dim for dim in figsize]) - 1
     fig = plt.figure(figsize=figsize, dpi=min(max_dpi, 100))
     grid = plt.GridSpec(n_rows, n_cols, wspace=0.2, hspace=0.2)
+    original_fontsize = plt.rcParams['font.size']
     plt.rcParams.update({'font.size': 36})
 
     # plot tags
@@ -555,6 +558,7 @@ def plot_tags(data, plot_config):
     fig.subplots_adjust(wspace=0.7, hspace=0.1)
     fig.savefig(fig_path, bbox_inches='tight')
     plt.close(fig)
+    plt.rcParams.update({'font.size': original_fontsize})
 
 def initialize_spatial_figure(bounds, fontsize=18):
 
