@@ -52,11 +52,11 @@ def plot_expression_survival(
 
     fig, ax = plt.subplots(figsize=(6, 2))
     ax.scatter(
-        live_averages, np.random.random(len(live_averages)),
+        live_averages, [0.1] * len(live_averages),
         label='Survive', color=LIVE_COLOR, alpha=ALPHA,
     )
     ax.scatter(
-        dead_averages, np.random.random(len(dead_averages)),
+        dead_averages, [0.1] * len(dead_averages),
         label='Die', color=DEAD_COLOR, alpha=ALPHA,
     )
     ax.legend()
