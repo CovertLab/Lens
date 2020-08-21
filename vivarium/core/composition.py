@@ -635,6 +635,12 @@ def plot_agents_multigen(data, settings={}, out_dir='out', filename='agents'):
               that won't be plotted
             * **include_paths** (:py:class:`list`): list of full paths
               to include. Overridden by skip_paths.
+            * **titles_map** (:py:class:`dict`): Map from path tuples to
+              strings to use as the figure titles for each path's plot.
+              If not provided, the path is shown as the title.
+            * **ylabels_map** (:py:class:`dict`): Map from path tuples to
+              strings to use as the y-axis labels for each path's plot.
+              If not specified, no y-axis label is used.
 
     TODO -- add legend with agent color
     '''
@@ -647,6 +653,8 @@ def plot_agents_multigen(data, settings={}, out_dir='out', filename='agents'):
     include_paths = settings.get('include_paths', None)
     title_size = settings.get('title_size', 16)
     tick_label_size = settings.get('tick_label_size', 12)
+    titles_map = settings.get('titles_map', dict())
+    ylabels_map = settings.get('ylabels_map', dict())
     time_vec = list(data.keys())
     timeseries = path_timeseries_from_data(data)
 
@@ -733,8 +741,10 @@ def plot_agents_multigen(data, settings={}, out_dir='out', filename='agents'):
                     which=tick_type,
                     labelsize=tick_label_size,
                 )
-            ax.title.set_text(path)
+            ax.title.set_text(titles_map.get(path, path))
             ax.title.set_fontsize(title_size)
+            if path in ylabels_map:
+                ax.set_ylabel(ylabels_map[path])
             ax.set_xlim([time_vec[0], time_vec[-1]])
             ax.xaxis.get_offset_text().set_fontsize(tick_label_size)
             ax.yaxis.get_offset_text().set_fontsize(tick_label_size)
