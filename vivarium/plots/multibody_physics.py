@@ -241,6 +241,10 @@ def plot_snapshots(data, plot_config):
               is black.
             * **default_font_size** (:py:class:`float`): Font size for
               titles and axis labels.
+            * **subtract_baseline** (:py:class:`bool`): Whether to
+              subtract from all field matrices the first matrix for that
+              field. If True, this results in plotting the change in
+              concentration from baseline. Deafults to False.
     '''
     check_plt_backend()
 
@@ -254,6 +258,7 @@ def plot_snapshots(data, plot_config):
     field_label_size = plot_config.get('field_label_size', 20)
     default_font_size = plot_config.get('default_font_size', 36)
     dead_color = plot_config.get('dead_color', [0, 0, 0])
+    subtract_baseline = plot_config.get('subtract_baseline', False)
 
     # get data
     agents = data.get('agents', {})
@@ -284,6 +289,12 @@ def plot_snapshots(data, plot_config):
         else:
             field_ids = set(include_fields)
         field_ids -= set(skip_fields)
+
+        if subtract_baseline:
+            for field_id in field_ids:
+                for _, field_data in fields.items():
+                    field_data[field_id] -= fields[0][field_id]
+
         field_range = {}
         for field_id in field_ids:
             field_min = min([min(min(field_data[field_id])) for t, field_data in fields.items()])
