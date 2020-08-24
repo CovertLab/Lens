@@ -1,3 +1,8 @@
+'''
+======================================
+Expression Dotplot Colored by Survival
+======================================
+'''
 from matplotlib import pyplot as plt
 import numpy as np
 
@@ -14,6 +19,31 @@ ALPHA = 0.5
 def plot_expression_survival(
     data, path_to_variable, xlabel, time_range=(0, 1)
 ):
+    '''Create Expression Dotplot Colored by Survival
+
+    Plot one dot for each cell along an axis to indicate that cell's
+    average expression level for a specified protein. The dot color
+    reflects whether the cell survived long enough to divide.
+
+    Note that only the expression levels while the cell is alive are
+    considered in the average.
+
+    Parameters:
+        data (dict): The raw data emitted from the simulation.
+        path_to_variable (tuple): Path from the agent root to the
+            variable that holds the protein's expression level. We do
+            not adjust for cell volume, so this should be a
+            concentration.
+        xlabel (str): Label for x-axis.
+        time_range (tuple): Tuple of two :py:class:`float`s that are
+            fractions of the total simulated time period. These
+            fractions indicate the start and end points (inclusive) of
+            the time range to consider when calculating average
+            expression level.
+
+    Returns:
+        plt.Figure: The finished figure.
+    '''
     expression_levels = dict()
     die = set()
     end_time = max(data.keys())
