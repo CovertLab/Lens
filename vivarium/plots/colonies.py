@@ -175,3 +175,57 @@ def plot_colony_metrics(
                 ax.fill_between(x, y - yerr, y + yerr, alpha=0.2)
 
     return fig
+
+
+def plot_metric_across_experiments(
+    path_ts_dict, path, title=None, xlabel='time (s)', ylabel=None,
+    title_size=16, tick_label_size=12,
+):
+    '''Overlay plots of a single metric from different experiments.
+
+    Parameters:
+        path_ts_dict (dict): Map from the string to use as the label for
+            the experiment in the legend to that experiment's path
+            timeseries.
+        path (tuple): Path to plot. Should be a key in each value of
+            ``path_ts_dict``.
+        title (str): Plot title. If None, no title is set.
+        xlabel (str): X-axis label. If None, no label is set.
+        ylabel (str): Y-axis label. If None, no label is set.
+        title_size (float): Font size for plot and axis titles.
+        tick_label_size (float): Font size for tick labels.
+
+    Returns:
+        The figure with the plot.
+    '''
+    fig, ax = plt.subplots()
+
+    # Set labels and font sizes
+    if title is not None:
+        ax.set_title(title, fontsize=title_size)
+    if xlabel is not None:
+        ax.set_xlabel(xlabel, fontsize=title_size)
+    if ylabel is not None:
+        ax.set_ylabel(ylabel, fontsize=title_size)
+    ax.xaxis.get_offset_text().set_fontsize(tick_label_size)
+    ax.yaxis.get_offset_text().set_fontsize(tick_label_size)
+
+    # Plot data
+    for label, path_ts in path_ts_dict.items():
+        data = path_ts[path]
+        times = path_ts['time']
+        if path == NUM_COLONIES_PATH:
+            ax.plot(times, data, label=label)
+        else:
+            plot_times = []
+            means = []
+            for i, metrics_list in enumerate(data):
+                if not metrics_list:
+                    continue
+                means.append(np.mean(metrics_list))
+                plot_times.append(times[i])
+            ax.plot(plot_times, means, label=label)
+
+    ax.legend()
+    fig.tight_layout()
+    return fig
