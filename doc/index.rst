@@ -2,6 +2,9 @@
 Welcome to Vivarium's documentation!
 ====================================
 
+.. DANGER:: This version of Vivarium is deprecated. Please see
+   `Vivarium Core <https://vivarium-core.readthedocs.io/>`_ instead.
+
 Vivarium is a multiscale platform for simulating cells in dynamic
 environments, within which they can grow, divide, and thrive.
 
